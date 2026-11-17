@@ -1,0 +1,20 @@
+# Rust build output
+/target/
+# Node tooling for the dashboard (later)
+node_modules/
+# Secrets and local config: never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.secret
+# Generated run output (real reports can contain wallet identifiers; labelled samples live in examples/)
+/reports/
+/runs/
+# Logs and editor or OS files
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
