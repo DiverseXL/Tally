@@ -3,7 +3,7 @@
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(name = "tally", version, about)]
 struct Cli {}
 
 fn main() {

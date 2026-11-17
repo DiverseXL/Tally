@@ -4,5 +4,19 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[dependencies]
+secrecy = { workspace = true }
+tally-core = { path = "../tally-core" }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+lightning-invoice = { workspace = true, features = ["std"] }
+nostr = { workspace = true }
+nwc = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+subtle = { workspace = true }
+tokio = { workspace = true, features = ["macros", "time", "rt-multi-thread"] }
+
 [lints]
 workspace = true
