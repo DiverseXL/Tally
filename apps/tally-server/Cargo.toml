@@ -1,0 +1,11 @@
+[package]
+name = "tally-server"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+clap = { workspace = true, features = ["derive"] }
+
+[lints]
+workspace = true
