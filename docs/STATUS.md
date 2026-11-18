@@ -5,6 +5,7 @@ Legend:
 - SCAFFOLD: structure only, no behaviour.
 - IMPLEMENTED: code exists, not yet proven.
 - VERIFIED: proven by a test or recorded run, with the evidence named.
+- NOT IMPLEMENTED: a recognised gap, listed so that no document claims it works.
 
 | Component | Path | Status | Evidence |
 | --- | --- | --- | --- |
@@ -37,7 +38,13 @@ Legend:
 | tally-runner profiles and config | crates/tally-runner/src/profile.rs | VERIFIED | cargo test -p tally-runner: profile::tests 3 and config::tests 1 passed (12 tests in order, only sign_message not required, sandbox 21000 msat defaults) |
 | tally-runner reports | crates/tally-runner/src/render.rs | VERIFIED | cargo test -p tally-runner: tests/renderer.rs 9 passed (sentinel escaped, per-status counts equal the JSON, five statuses and legend, no script or external resource, ASCII only, one value feeding both files, real run leaks no invoice or connection string) |
 | tally-cli | apps/tally-cli | VERIFIED | cargo test -p tally-cli: tests/cli.rs 9 passed offline (version, doctor with and without configuration, usage errors, missing connection string, JSON to HTML round trip, unknown schema version refused, sentinels never printed, dotenv reading). Step 7 live runs: doctor exit 0, inspect --profile basic exit 0, unapproved l402-e2e exit 5, approved 21-sat l402-e2e exit 0 |
-| Step 7 end-to-end proof | reports/24d21e12954ec0d716f3766d4f4afb86/report.json | VERIFIED | one live sandbox run: pay_invoice PASS, preimage_verification PASS, protected_resource PASS with valid_proof_status=200 and body_matches_expected=true, lookup_invoice PASS, balance deltas -21000 and +21000 msat, exit_code 0, sign_message UNSUPPORTED |
+| Step 7 end-to-end proof | examples/recorded-sandbox-run/approved/report.json | VERIFIED | one live sandbox run: pay_invoice PASS, preimage_verification PASS, protected_resource PASS with valid_proof_status=200 and body_matches_expected=true, lookup_invoice PASS, balance deltas -21000 and +21000 msat, exit_code 0, sign_message UNSUPPORTED |
+| Encryption mode field | crates/tally-runner/src/run.rs | NOT IMPLEMENTED | the report field `encryption_mode_selected` is written as null by the runner; the session selects the cipher and `session::tests::encryption_mode_follows_the_info_event_tag` proves the rule, but the negotiated value is not recorded in a run |
+| Recorded evidence | examples/recorded-sandbox-run | VERIFIED | two unedited runs copied from reports/: approved run 24d21e12954ec0d716f3766d4f4afb86 (exit 0) and unapproved run 88dd082561220ed70982b8649a6e951f (exit 5), each with report.json, report.html and provenance in README.md; no invoice, preimage or connection string in either file (secret scan) |
+| License | LICENSE | VERIFIED | MIT text, "Copyright (c) 2026 Tally contributors"; `license = "MIT"` in [workspace.package] and `license.workspace = true` in all six member manifests; cargo build --workspace passes |
+| Documentation set | README.md, docs/ARCHITECTURE.md, docs/INTEGRATIONS.md, docs/TESTING.md, docs/SECURITY.md, docs/EVALUATION.md | VERIFIED | scripts/check-docs.sh passes: every backticked repo path exists, every doc is ASCII, and 45 quoted test names exist in `cargo test --workspace -- --list` |
+| CI workflow | .github/workflows/ci.yml | IMPLEMENTED | fmt, clippy and test on ubuntu-latest, plus a separate cargo-audit job; YAML syntax not validated by a parser locally and the workflow has never run on GitHub |
+| Dependency audit | Cargo.lock | VERIFIED | cargo-audit 0.23.0 on 2026-11-18: 0 vulnerabilities, 0 warnings across 261 crates, RustSec database commit 472a4c9a785030434f15d7da84964d60fbe789ab; recorded in docs/SECURITY.md |
 | tally-server | apps/tally-server | SCAFFOLD | none |
 | web | web | SCAFFOLD | none |
 | Toolchain and library build test (scratch, deleted) | deleted scratch crate | VERIFIED | Step 2 report: pinned libraries built together and passed offline probes on x86_64-pc-windows-gnu |
