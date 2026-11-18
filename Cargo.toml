@@ -16,6 +16,10 @@ lightning-invoice = "=0.34.2"
 # Already in Cargo.lock through lightning-invoice; only the tests sign invoices.
 bitcoin = "=0.32.102"
 libmacaroon = "=0.4.0"
+# Already in Cargo.lock through libmacaroon and reqwest.
+base64 = "=0.23.1"
+# Already in Cargo.lock through libmacaroon; the OS random source for keys.
+getrandom = "=0.4.3"
 axum = "=0.8.9"
 clap = "=4.6.7"
 reqwest = "=0.13.5"

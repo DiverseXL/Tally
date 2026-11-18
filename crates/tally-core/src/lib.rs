@@ -17,9 +17,9 @@ pub use capabilities::{
 };
 pub use outcome::{Observation, Outcome, WalletErrorCode, classify_wallet_outcome, reason};
 pub use report::{
-    EndpointClass, EnvClass, Environment, InvoiceEvidence, NwcClientIdentity, PaymentEvidence,
-    PaymentOutcome, ProtectedResourceEvidence, RoleCapabilities, RunReport, SCHEMA_VERSION,
-    TestResult, WalletRole, WalletSummary, WorkflowEvidence, exit_code,
+    ChallengeEvidence, EndpointClass, EnvClass, Environment, InvoiceEvidence, NwcClientIdentity,
+    PaymentEvidence, PaymentOutcome, ProtectedResourceEvidence, RoleCapabilities, RunReport,
+    SCHEMA_VERSION, TestResult, WalletRole, WalletSummary, WorkflowEvidence, exit_code,
 };
 pub use status::Status;
 pub use time::{new_run_id, now_rfc3339, rfc3339_utc_from_unix_secs, unix_now_millis};

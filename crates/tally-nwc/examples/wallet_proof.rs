@@ -418,6 +418,7 @@ async fn run(approved_sats: Option<u64>) -> ExitCode {
         workflow_evidence: WorkflowEvidence {
             invoice: invoice_evidence,
             payment: Some(payment.evidence),
+            challenge: None,
             protected_resource: None,
         },
         limitations: vec![String::from(LIMITATION)],

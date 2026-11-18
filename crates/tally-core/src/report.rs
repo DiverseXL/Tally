@@ -191,11 +191,37 @@ pub struct PaymentEvidence {
     pub preimage_matches_payment_hash: Option<bool>,
 }
 
-/// Placeholder for the L402 evidence of later steps.
+/// The L402 challenge, as evidence only.
+///
+/// No field here holds a macaroon, an invoice, a preimage or a key.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChallengeEvidence {
+    /// The HTTP status the challenge arrived with.
+    pub http_status: u16,
+    /// The authentication scheme name, for example `L402`.
+    pub scheme: String,
+    /// Whether a macaroon was present in the challenge.
+    pub macaroon_present: bool,
+    /// Whether an invoice was present in the challenge.
+    pub invoice_present: bool,
+    /// Whether the macaroon was checked against the invoice.
+    pub binding_checked: bool,
+    /// Whether the macaroon's payment hash equalled the invoice's; null when
+    /// the check could not run.
+    pub binding_matches: Option<bool>,
+}
+
+/// The protected resource, as evidence only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtectedResourceEvidence {
-    /// Whether the protected resource was unlocked.
-    pub unlocked: bool,
+    /// The status of a request without credentials.
+    pub unauthenticated_status: u16,
+    /// The status of a request with a wrong proof; null when not tried.
+    pub wrong_proof_status: Option<u16>,
+    /// The status of a request with valid credentials; null when not tried.
+    pub valid_proof_status: Option<u16>,
+    /// Whether the unlocked body was the expected one; null when not unlocked.
+    pub body_matches_expected: Option<bool>,
 }
 
 /// Workflow evidence gathered during the run.
@@ -205,7 +231,9 @@ pub struct WorkflowEvidence {
     pub invoice: Option<InvoiceEvidence>,
     /// The payment.
     pub payment: Option<PaymentEvidence>,
-    /// The protected resource; null until the L402 step exists.
+    /// The L402 challenge.
+    pub challenge: Option<ChallengeEvidence>,
+    /// The protected resource.
     pub protected_resource: Option<ProtectedResourceEvidence>,
 }
 
@@ -216,6 +244,7 @@ impl WorkflowEvidence {
         Self {
             invoice: None,
             payment: None,
+            challenge: None,
             protected_resource: None,
         }
     }
@@ -362,10 +391,11 @@ pub fn exit_code(report: &RunReport) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        EXIT_ALL_REQUIRED_PASSED, EXIT_REQUIRED_BLOCKED, EXIT_REQUIRED_FAILED,
+        ChallengeEvidence, EXIT_ALL_REQUIRED_PASSED, EXIT_REQUIRED_BLOCKED, EXIT_REQUIRED_FAILED,
         EXIT_REQUIRED_NOT_TESTED, EXIT_REQUIRED_UNSUPPORTED, EndpointClass, EnvClass, Environment,
-        InvoiceEvidence, NwcClientIdentity, PaymentEvidence, PaymentOutcome, RunReport,
-        SCHEMA_VERSION, TestResult, WalletRole, WalletSummary, WorkflowEvidence, exit_code,
+        InvoiceEvidence, NwcClientIdentity, PaymentEvidence, PaymentOutcome,
+        ProtectedResourceEvidence, RunReport, SCHEMA_VERSION, TestResult, WalletRole,
+        WalletSummary, WorkflowEvidence, exit_code,
     };
     use crate::status::Status;
 
@@ -515,7 +545,20 @@ mod tests {
                     preimage_present: true,
                     preimage_matches_payment_hash: Some(true),
                 }),
-                protected_resource: None,
+                challenge: Some(ChallengeEvidence {
+                    http_status: 402,
+                    scheme: String::from("L402"),
+                    macaroon_present: true,
+                    invoice_present: true,
+                    binding_checked: true,
+                    binding_matches: Some(true),
+                }),
+                protected_resource: Some(ProtectedResourceEvidence {
+                    unauthenticated_status: 402,
+                    wrong_proof_status: Some(402),
+                    valid_proof_status: Some(200),
+                    body_matches_expected: Some(true),
+                }),
             },
             limitations: vec![String::from("example limitation")],
         };
@@ -549,7 +592,12 @@ mod tests {
             "\"payment_hash\":\"cc\",\"seconds_until_expiry\":298},",
             "\"payment\":{\"outcome\":\"paid\",\"fees_paid_msat\":0,",
             "\"preimage_present\":true,\"preimage_matches_payment_hash\":true},",
-            "\"protected_resource\":null},",
+            "\"challenge\":{\"http_status\":402,\"scheme\":\"L402\",",
+            "\"macaroon_present\":true,\"invoice_present\":true,",
+            "\"binding_checked\":true,\"binding_matches\":true},",
+            "\"protected_resource\":{\"unauthenticated_status\":402,",
+            "\"wrong_proof_status\":402,\"valid_proof_status\":200,",
+            "\"body_matches_expected\":true}},",
             "\"limitations\":[\"example limitation\"]}"
         );
 
