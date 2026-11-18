@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tally report 88dd082561220ed70982b8649a6e951f</title>
+<style>
+
+:root { color-scheme: light dark; --bg: #ffffff; --fg: #1a1a1a; --muted: #555555; --line: #d0d0d0; --pass: #146c2e; --fail: #a11b1b; --unsupported: #6a4b00; --not-tested: #4a4a4a; --blocked: #7a2a00; }
+@media (prefers-color-scheme: dark) { :root { --bg: #14161a; --fg: #eceff3; --muted: #b3b9c2; --line: #343a44; --pass: #6fd18a; --fail: #ff8a80; --unsupported: #f0c05a; --not-tested: #c2c8d2; --blocked: #ffab73; } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif; line-height: 1.5; }
+main { max-width: 60rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.6rem; margin: 0.5rem 0; }
+h2 { font-size: 1.25rem; margin-top: 2rem; border-bottom: 1px solid var(--line); padding-bottom: 0.25rem; }
+h3 { font-size: 1.05rem; margin-top: 1.25rem; }
+p, li, dd, dt { font-size: 0.95rem; }
+.meta { color: var(--muted); }
+table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; display: block; overflow-x: auto; }
+caption { text-align: left; font-weight: 600; padding: 0.25rem 0; }
+th, td { border: 1px solid var(--line); padding: 0.35rem 0.5rem; text-align: left; vertical-align: top; }
+thead th { background: rgba(127, 127, 127, 0.12); }
+.status { font-weight: 700; white-space: nowrap; }
+.status.pass { color: var(--pass); }
+.status.fail { color: var(--fail); }
+.status.unsupported { color: var(--unsupported); }
+.status.not-tested { color: var(--not-tested); }
+.status.blocked { color: var(--blocked); }
+.verdict { font-weight: 600; }
+.legend { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+.legend dt { margin: 0; }
+.legend dd { margin: 0; }
+@media (max-width: 40rem) { .legend { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Tally report</h1>
+<p class="meta">Run 88dd082561220ed70982b8649a6e951f started 2026-11-18T18:37:06Z, finished 2026-11-18T18:37:10Z, Tally 0.1.0.</p>
+<section>
+<h2>Overall verdict</h2>
+<p class="verdict">Exit code 5: a required test was not tested.</p>
+<table>
+<caption>Tests per status</caption>
+<thead><tr><th scope="col">Status</th><th scope="col">Count</th></tr></thead>
+<tbody>
+<tr><th scope="row">PASS</th><td>10</td></tr>
+<tr><th scope="row">FAIL</th><td>0</td></tr>
+<tr><th scope="row">UNSUPPORTED</th><td>1</td></tr>
+<tr><th scope="row">NOT TESTED</th><td>3</td></tr>
+<tr><th scope="row">BLOCKED</th><td>0</td></tr>
+</tbody>
+</table>
+</section>
+<section>
+<h2>Environment and limitations</h2>
+<table>
+<caption>Environment</caption>
+<tbody>
+<tr><th scope="row">Environment class</th><td>sandbox</td></tr>
+<tr><th scope="row">Endpoint class</th><td>local_fixture</td></tr>
+<tr><th scope="row">NWC client</th><td>nwc 0.45.2</td></tr>
+<tr><th scope="row">Encryption mode</th><td>not recorded</td></tr>
+<tr><th scope="row">Wallet network</th><td>mainnet</td></tr>
+</tbody>
+</table>
+<h3>Limitations</h3>
+<ul class="limitations">
+<li>Sandbox wallets from the NWC faucet: balances are play money on a single Alby Hub with no Lightning channels; payments use the real NWC protocol and return a real preimage but are not routed across the real Lightning network.</li>
+<li>The protected resource is served by a local test fixture started by Tally on 127.0.0.1; this proves Tally&#39;s flow, not compatibility with third-party L402 services.</li>
+</ul>
+</section>
+<section>
+<h2>Capabilities per wallet</h2>
+<table>
+<caption>Advertised methods and disagreements</caption>
+<thead><tr><th scope="col">Wallet</th><th scope="col">Governing source</th><th scope="col">Methods</th><th scope="col">Discrepancies</th></tr></thead>
+<tbody>
+<tr><th scope="row">payer</th><td>info_event</td><td>get_info pay_invoice pay_keysend multi_pay_invoice multi_pay_keysend get_balance make_invoice make_hold_invoice settle_hold_invoice cancel_hold_invoice lookup_invoice list_transactions get_budget notifications</td><td>none</td></tr>
+<tr><th scope="row">receiver</th><td>info_event</td><td>get_info pay_invoice pay_keysend multi_pay_invoice multi_pay_keysend get_balance make_invoice make_hold_invoice settle_hold_invoice cancel_hold_invoice lookup_invoice list_transactions get_budget notifications</td><td>none</td></tr>
+</tbody>
+</table>
+<p class="meta">Info events: payer found=true; receiver found=true</p>
+</section>
+<section>
+<h2>Tests</h2>
+<table>
+<caption>Every test in run order</caption>
+<thead><tr><th scope="col">Test</th><th scope="col">Status</th><th scope="col">Required</th><th scope="col">Expected</th><th scope="col">Observed</th><th scope="col">Details</th></tr></thead>
+<tbody>
+<tr><th scope="row">connect</th><td class="status pass">PASS</td><td>yes</td><td>both wallets reach at least one relay</td><td>both wallets connected</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED; payer_relays_connected=2; receiver_relays_connected=2</td></tr>
+<tr><th scope="row">info_event</th><td class="status pass">PASS</td><td>yes</td><td>the payer publishes an info event</td><td>info event received</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED; content_kind=space_separated; receiver_info_event_found=true</td></tr>
+<tr><th scope="row">get_info</th><td class="status pass">PASS</td><td>yes</td><td>both wallets answer get_info</td><td>both wallets answered</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED; payer_network=mainnet; payer_methods=13; receiver_methods=13</td></tr>
+<tr><th scope="row">get_balance</th><td class="status pass">PASS</td><td>yes</td><td>both wallets report a balance</td><td>both balances read</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED; payer_balance_msat=9958000; receiver_balance_msat=10042000</td></tr>
+<tr><th scope="row">challenge</th><td class="status pass">PASS</td><td>yes</td><td>402 with a valid L402 challenge</td><td>402 with a parsed challenge</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED; scheme=L402; macaroon_present=true; invoice_present=true</td></tr>
+<tr><th scope="row">invoice_validation</th><td class="status pass">PASS</td><td>yes</td><td>the invoice parses, matches the network and amount, and is not expired</td><td>invoice valid</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED; amount_msat=21000; seconds_until_expiry=299</td></tr>
+<tr><th scope="row">challenge_binding</th><td class="status pass">PASS</td><td>yes</td><td>the macaroon binds the invoice payment hash</td><td>binding matches: true</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED</td></tr>
+<tr><th scope="row">pay_invoice</th><td class="status not-tested">NOT TESTED</td><td>yes</td><td>the invoice is paid once</td><td>no payment approval was given for this run</td><td>reason=PAYMENT_NOT_APPROVED</td></tr>
+<tr><th scope="row">preimage_verification</th><td class="status not-tested">NOT TESTED</td><td>yes</td><td>SHA-256 of the preimage equals the invoice payment hash</td><td>no payment was approved for this run</td><td>reason=PAYMENT_NOT_APPROVED</td></tr>
+<tr><th scope="row">protected_resource</th><td class="status not-tested">NOT TESTED</td><td>yes</td><td>the unlocked body is the expected one</td><td>no payment was approved for this run</td><td>reason=PAYMENT_NOT_APPROVED</td></tr>
+<tr><th scope="row">negative_wrong_proof</th><td class="status pass">PASS</td><td>yes</td><td>a wrong preimage is refused with 402</td><td>status 402</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED</td></tr>
+<tr><th scope="row">negative_no_proof</th><td class="status pass">PASS</td><td>yes</td><td>a macaroon without a preimage is refused with 402</td><td>status 402</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED</td></tr>
+<tr><th scope="row">lookup_invoice</th><td class="status pass">PASS</td><td>yes</td><td>the invoice is found as pending</td><td>wallet reported state pending</td><td>reason=EXPECTED_BEHAVIOUR_OBSERVED</td></tr>
+<tr><th scope="row">sign_message</th><td class="status unsupported">UNSUPPORTED</td><td>no</td><td>the payer advertises and answers sign_message</td><td>the payer does not advertise sign_message</td><td>reason=METHOD_NOT_ADVERTISED</td></tr>
+</tbody>
+</table>
+</section>
+<section>
+<h2>Workflow evidence</h2>
+<table>
+<caption>Invoice, payment and protected resource</caption>
+<tbody>
+<tr><th scope="row">Invoice network</th><td>bitcoin</td></tr>
+<tr><th scope="row">Invoice amount (msat)</th><td>21000</td></tr>
+<tr><th scope="row">Payment hash</th><td>978f8873b285ffe5308066f9b6d8b6ce3f47347b46fe86506583828881fd9189</td></tr>
+<tr><th scope="row">Seconds until expiry</th><td>299</td></tr>
+<tr><th scope="row">Payment outcome</th><td>not_attempted</td></tr>
+<tr><th scope="row">Fees paid (msat)</th><td>unknown</td></tr>
+<tr><th scope="row">Preimage present</th><td>false</td></tr>
+<tr><th scope="row">Preimage matches payment hash</th><td>not checked</td></tr>
+<tr><th scope="row">Challenge status</th><td>402</td></tr>
+<tr><th scope="row">Challenge scheme</th><td>L402</td></tr>
+<tr><th scope="row">Macaroon present</th><td>true</td></tr>
+<tr><th scope="row">Invoice present</th><td>true</td></tr>
+<tr><th scope="row">Binding checked</th><td>true</td></tr>
+<tr><th scope="row">Binding matches</th><td>true</td></tr>
+<tr><th scope="row">Unauthenticated status</th><td>402</td></tr>
+<tr><th scope="row">Wrong proof status</th><td>402</td></tr>
+<tr><th scope="row">Valid proof status</th><td>not tried</td></tr>
+<tr><th scope="row">Body matches expected</th><td>not unlocked</td></tr>
+</tbody>
+</table>
+</section>
+<section>
+<h2>Status legend</h2>
+<dl class="legend">
+<dt class="status pass">PASS</dt><dd>The expected behaviour was observed.</dd>
+<dt class="status fail">FAIL</dt><dd>The test ran and the expected behaviour was not observed.</dd>
+<dt class="status unsupported">UNSUPPORTED</dt><dd>The wallet does not offer what the test needs; no request was sent.</dd>
+<dt class="status not-tested">NOT TESTED</dt><dd>The test was not run, for example because the run was not approved to pay.</dd>
+<dt class="status blocked">BLOCKED</dt><dd>The test could not run because something outside the wallet blocked it.</dd>
+</dl>
+</section>
+</main>
+</body>
+</html>

@@ -1,0 +1,400 @@
+{
+  "schema_version": 1,
+  "run_id": "88dd082561220ed70982b8649a6e951f",
+  "started_at": "2026-11-18T18:37:06Z",
+  "finished_at": "2026-11-18T18:37:10Z",
+  "duration_ms": 3838,
+  "tally_version": "0.1.0",
+  "environment": {
+    "class": "sandbox",
+    "endpoint_class": "local_fixture",
+    "nwc_client": {
+      "name": "nwc",
+      "version": "0.45.2"
+    },
+    "encryption_mode_selected": null,
+    "network_reported": "mainnet"
+  },
+  "wallets": [
+    {
+      "role": "payer",
+      "service_pubkey": "6f7f4c439dfb485eb77f6af47398304a7ef55177a95a3da2fd5f76dd413c9d25"
+    },
+    {
+      "role": "receiver",
+      "service_pubkey": "4dda4b68d0f67c2692ee33d22fdb91aec35187d9f2cd2d36aec11458175a79e4"
+    }
+  ],
+  "capabilities": [
+    {
+      "role": "payer",
+      "info_event": {
+        "found": true,
+        "raw_content": "get_info pay_invoice pay_keysend multi_pay_invoice multi_pay_keysend get_balance make_invoice make_hold_invoice settle_hold_invoice cancel_hold_invoice lookup_invoice list_transactions get_budget notifications",
+        "methods": [
+          "get_info",
+          "pay_invoice",
+          "pay_keysend",
+          "multi_pay_invoice",
+          "multi_pay_keysend",
+          "get_balance",
+          "make_invoice",
+          "make_hold_invoice",
+          "settle_hold_invoice",
+          "cancel_hold_invoice",
+          "lookup_invoice",
+          "list_transactions",
+          "get_budget",
+          "notifications"
+        ],
+        "encryption_tokens": [
+          "nip44_v2",
+          "nip04"
+        ],
+        "extensions": [
+          "02",
+          "03",
+          "04",
+          "05",
+          "06"
+        ]
+      },
+      "get_info": {
+        "methods": [
+          "get_info",
+          "pay_invoice",
+          "pay_keysend",
+          "multi_pay_invoice",
+          "multi_pay_keysend",
+          "get_balance",
+          "make_invoice",
+          "make_hold_invoice",
+          "settle_hold_invoice",
+          "cancel_hold_invoice",
+          "lookup_invoice",
+          "list_transactions",
+          "get_budget"
+        ],
+        "extensions": null,
+        "notifications": [
+          "payment_received",
+          "payment_sent",
+          "hold_invoice_accepted"
+        ],
+        "network": "mainnet",
+        "alias": "NWC"
+      },
+      "effective_source": "info_event",
+      "effective_methods": [
+        "get_info",
+        "pay_invoice",
+        "pay_keysend",
+        "multi_pay_invoice",
+        "multi_pay_keysend",
+        "get_balance",
+        "make_invoice",
+        "make_hold_invoice",
+        "settle_hold_invoice",
+        "cancel_hold_invoice",
+        "lookup_invoice",
+        "list_transactions",
+        "get_budget",
+        "notifications"
+      ],
+      "discrepancies": []
+    },
+    {
+      "role": "receiver",
+      "info_event": {
+        "found": true,
+        "raw_content": "get_info pay_invoice pay_keysend multi_pay_invoice multi_pay_keysend get_balance make_invoice make_hold_invoice settle_hold_invoice cancel_hold_invoice lookup_invoice list_transactions get_budget notifications",
+        "methods": [
+          "get_info",
+          "pay_invoice",
+          "pay_keysend",
+          "multi_pay_invoice",
+          "multi_pay_keysend",
+          "get_balance",
+          "make_invoice",
+          "make_hold_invoice",
+          "settle_hold_invoice",
+          "cancel_hold_invoice",
+          "lookup_invoice",
+          "list_transactions",
+          "get_budget",
+          "notifications"
+        ],
+        "encryption_tokens": [
+          "nip44_v2",
+          "nip04"
+        ],
+        "extensions": [
+          "02",
+          "03",
+          "04",
+          "05",
+          "06"
+        ]
+      },
+      "get_info": {
+        "methods": [
+          "get_info",
+          "pay_invoice",
+          "pay_keysend",
+          "multi_pay_invoice",
+          "multi_pay_keysend",
+          "get_balance",
+          "make_invoice",
+          "make_hold_invoice",
+          "settle_hold_invoice",
+          "cancel_hold_invoice",
+          "lookup_invoice",
+          "list_transactions",
+          "get_budget"
+        ],
+        "extensions": null,
+        "notifications": [
+          "payment_received",
+          "payment_sent",
+          "hold_invoice_accepted"
+        ],
+        "network": "mainnet",
+        "alias": "NWC"
+      },
+      "effective_source": "info_event",
+      "effective_methods": [
+        "get_info",
+        "pay_invoice",
+        "pay_keysend",
+        "multi_pay_invoice",
+        "multi_pay_keysend",
+        "get_balance",
+        "make_invoice",
+        "make_hold_invoice",
+        "settle_hold_invoice",
+        "cancel_hold_invoice",
+        "lookup_invoice",
+        "list_transactions",
+        "get_budget",
+        "notifications"
+      ],
+      "discrepancies": []
+    }
+  ],
+  "tests": [
+    {
+      "id": "connect",
+      "name": "Connect both wallets",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "both wallets reach at least one relay",
+      "actual": "both wallets connected",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "payer_relays_connected=2",
+        "receiver_relays_connected=2"
+      ]
+    },
+    {
+      "id": "info_event",
+      "name": "Fetch the info event",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "the payer publishes an info event",
+      "actual": "info event received",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "content_kind=space_separated",
+        "receiver_info_event_found=true"
+      ]
+    },
+    {
+      "id": "get_info",
+      "name": "Get wallet info",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "get_info",
+      "expected": "both wallets answer get_info",
+      "actual": "both wallets answered",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "payer_network=mainnet",
+        "payer_methods=13",
+        "receiver_methods=13"
+      ]
+    },
+    {
+      "id": "get_balance",
+      "name": "Get balance",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "get_balance",
+      "expected": "both wallets report a balance",
+      "actual": "both balances read",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "payer_balance_msat=9958000",
+        "receiver_balance_msat=10042000"
+      ]
+    },
+    {
+      "id": "challenge",
+      "name": "Fetch the L402 challenge",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "make_invoice",
+      "expected": "402 with a valid L402 challenge",
+      "actual": "402 with a parsed challenge",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "scheme=L402",
+        "macaroon_present=true",
+        "invoice_present=true"
+      ]
+    },
+    {
+      "id": "invoice_validation",
+      "name": "Validate the invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "the invoice parses, matches the network and amount, and is not expired",
+      "actual": "invoice valid",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "amount_msat=21000",
+        "seconds_until_expiry=299"
+      ]
+    },
+    {
+      "id": "challenge_binding",
+      "name": "Check the challenge binding",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "the macaroon binds the invoice payment hash",
+      "actual": "binding matches: true",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED"
+      ]
+    },
+    {
+      "id": "pay_invoice",
+      "name": "Pay the invoice",
+      "status": "NOT_TESTED",
+      "required": true,
+      "required_capability": "pay_invoice",
+      "expected": "the invoice is paid once",
+      "actual": "no payment approval was given for this run",
+      "diagnostics": [
+        "reason=PAYMENT_NOT_APPROVED"
+      ]
+    },
+    {
+      "id": "preimage_verification",
+      "name": "Verify the preimage",
+      "status": "NOT_TESTED",
+      "required": true,
+      "required_capability": null,
+      "expected": "SHA-256 of the preimage equals the invoice payment hash",
+      "actual": "no payment was approved for this run",
+      "diagnostics": [
+        "reason=PAYMENT_NOT_APPROVED"
+      ]
+    },
+    {
+      "id": "protected_resource",
+      "name": "Unlock the protected resource",
+      "status": "NOT_TESTED",
+      "required": true,
+      "required_capability": null,
+      "expected": "the unlocked body is the expected one",
+      "actual": "no payment was approved for this run",
+      "diagnostics": [
+        "reason=PAYMENT_NOT_APPROVED"
+      ]
+    },
+    {
+      "id": "negative_wrong_proof",
+      "name": "Reject a wrong proof",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "a wrong preimage is refused with 402",
+      "actual": "status 402",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED"
+      ]
+    },
+    {
+      "id": "negative_no_proof",
+      "name": "Reject a macaroon without a preimage",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "a macaroon without a preimage is refused with 402",
+      "actual": "status 402",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED"
+      ]
+    },
+    {
+      "id": "lookup_invoice",
+      "name": "Look up the invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "lookup_invoice",
+      "expected": "the invoice is found as pending",
+      "actual": "wallet reported state pending",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED"
+      ]
+    },
+    {
+      "id": "sign_message",
+      "name": "Sign a message",
+      "status": "UNSUPPORTED",
+      "required": false,
+      "required_capability": "sign_message",
+      "expected": "the payer advertises and answers sign_message",
+      "actual": "the payer does not advertise sign_message",
+      "diagnostics": [
+        "reason=METHOD_NOT_ADVERTISED"
+      ]
+    }
+  ],
+  "workflow_evidence": {
+    "invoice": {
+      "network": "bitcoin",
+      "amount_msat": 21000,
+      "payment_hash": "978f8873b285ffe5308066f9b6d8b6ce3f47347b46fe86506583828881fd9189",
+      "seconds_until_expiry": 299
+    },
+    "payment": {
+      "outcome": "not_attempted",
+      "fees_paid_msat": null,
+      "preimage_present": false,
+      "preimage_matches_payment_hash": null
+    },
+    "challenge": {
+      "http_status": 402,
+      "scheme": "L402",
+      "macaroon_present": true,
+      "invoice_present": true,
+      "binding_checked": true,
+      "binding_matches": true
+    },
+    "protected_resource": {
+      "unauthenticated_status": 402,
+      "wrong_proof_status": 402,
+      "valid_proof_status": null,
+      "body_matches_expected": null
+    }
+  },
+  "limitations": [
+    "Sandbox wallets from the NWC faucet: balances are play money on a single Alby Hub with no Lightning channels; payments use the real NWC protocol and return a real preimage but are not routed across the real Lightning network.",
+    "The protected resource is served by a local test fixture started by Tally on 127.0.0.1; this proves Tally's flow, not compatibility with third-party L402 services."
+  ]
+}
