@@ -111,6 +111,20 @@ pub mod reason {
     pub const EXPECTED_BEHAVIOUR_NOT_OBSERVED: &str = "EXPECTED_BEHAVIOUR_NOT_OBSERVED";
     /// A local input was refused before any request was sent.
     pub const INPUT_REFUSED: &str = "INPUT_REFUSED";
+    /// The run was not approved to pay.
+    pub const PAYMENT_NOT_APPROVED: &str = "PAYMENT_NOT_APPROVED";
+    /// A live run did not carry the acknowledgement string.
+    pub const LIVE_NOT_ACKNOWLEDGED: &str = "LIVE_NOT_ACKNOWLEDGED";
+    /// The run guard holds a PAYING or AMBIGUOUS payment for this wallet.
+    pub const RUN_GUARD_BLOCKED: &str = "RUN_GUARD_BLOCKED";
+    /// An earlier required test did not pass, so this one could not run.
+    pub const PREREQUISITE_FAILED: &str = "PREREQUISITE_FAILED";
+    /// The wallet returned no preimage.
+    pub const NO_PREIMAGE: &str = "NO_PREIMAGE";
+    /// The preimage does not hash to the invoice payment hash.
+    pub const PREIMAGE_MISMATCH: &str = "PREIMAGE_MISMATCH";
+    /// No info event arrived in time.
+    pub const INFO_EVENT_NOT_FOUND: &str = "INFO_EVENT_NOT_FOUND";
 }
 
 /// What was observed while running one test.
@@ -128,6 +142,20 @@ pub enum Observation {
     NotSelected,
     /// A local input (for example an invoice or a permit) was refused.
     InputRefused,
+    /// The run was not approved to pay.
+    PaymentNotApproved,
+    /// A live run did not carry the acknowledgement string.
+    LiveNotAcknowledged,
+    /// The run guard holds a PAYING or AMBIGUOUS payment for this wallet.
+    RunGuardBlocked,
+    /// An earlier required test did not pass.
+    PrerequisiteFailed,
+    /// The wallet returned no preimage.
+    PreimageMissing,
+    /// The preimage does not hash to the invoice payment hash.
+    PreimageMismatch,
+    /// No info event arrived in time.
+    InfoEventMissing,
     /// The test ran and showed the expected behaviour.
     ExpectedBehaviourObserved,
     /// The test ran and did not show the expected behaviour.
@@ -212,6 +240,21 @@ pub fn classify_wallet_outcome(observation: Observation) -> Outcome {
         }
         Observation::NotSelected => Outcome::new(Status::NotTested, reason::NOT_SELECTED),
         Observation::InputRefused => Outcome::new(Status::Fail, reason::INPUT_REFUSED),
+        Observation::PaymentNotApproved => {
+            Outcome::new(Status::NotTested, reason::PAYMENT_NOT_APPROVED)
+        }
+        Observation::LiveNotAcknowledged => {
+            Outcome::new(Status::Blocked, reason::LIVE_NOT_ACKNOWLEDGED)
+        }
+        Observation::RunGuardBlocked => Outcome::new(Status::Blocked, reason::RUN_GUARD_BLOCKED),
+        Observation::PrerequisiteFailed => {
+            Outcome::new(Status::Blocked, reason::PREREQUISITE_FAILED)
+        }
+        Observation::PreimageMissing => Outcome::new(Status::Fail, reason::NO_PREIMAGE),
+        Observation::PreimageMismatch => Outcome::new(Status::Fail, reason::PREIMAGE_MISMATCH),
+        Observation::InfoEventMissing => {
+            Outcome::new(Status::Blocked, reason::INFO_EVENT_NOT_FOUND)
+        }
         Observation::ExpectedBehaviourObserved => {
             Outcome::new(Status::Pass, reason::EXPECTED_BEHAVIOUR_OBSERVED)
         }
@@ -326,6 +369,41 @@ mod tests {
                 Observation::NotSelected,
                 Status::NotTested,
                 reason::NOT_SELECTED,
+            ),
+            (
+                Observation::PaymentNotApproved,
+                Status::NotTested,
+                reason::PAYMENT_NOT_APPROVED,
+            ),
+            (
+                Observation::LiveNotAcknowledged,
+                Status::Blocked,
+                reason::LIVE_NOT_ACKNOWLEDGED,
+            ),
+            (
+                Observation::RunGuardBlocked,
+                Status::Blocked,
+                reason::RUN_GUARD_BLOCKED,
+            ),
+            (
+                Observation::PrerequisiteFailed,
+                Status::Blocked,
+                reason::PREREQUISITE_FAILED,
+            ),
+            (
+                Observation::PreimageMissing,
+                Status::Fail,
+                reason::NO_PREIMAGE,
+            ),
+            (
+                Observation::PreimageMismatch,
+                Status::Fail,
+                reason::PREIMAGE_MISMATCH,
+            ),
+            (
+                Observation::InfoEventMissing,
+                Status::Blocked,
+                reason::INFO_EVENT_NOT_FOUND,
             ),
             (
                 Observation::ExpectedBehaviourObserved,

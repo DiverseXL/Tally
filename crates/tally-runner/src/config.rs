@@ -1,0 +1,70 @@
+//! Everything one run needs that is not a wallet.
+
+use std::path::PathBuf;
+
+use tally_core::report::EnvClass;
+use tally_nwc::SessionOptions;
+
+/// The configured amount of every run, in millisatoshis.
+pub const DEFAULT_AMOUNT_MSAT: u64 = 21_000;
+
+/// How long an invoice issued for the fixture stays valid, in seconds.
+pub const DEFAULT_INVOICE_EXPIRY_SECONDS: u64 = 300;
+
+/// Configuration of one run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunConfig {
+    /// Sandbox or live.
+    pub env_class: EnvClass,
+    /// Sats the operator approved for this run, if any.
+    pub approve_payment_sats: Option<u64>,
+    /// The live acknowledgement string, if the operator passed one.
+    pub live_ack: Option<String>,
+    /// Amount asked of the receiver, in millisatoshis.
+    pub amount_msat: u64,
+    /// Lifetime of the issued invoice, in seconds.
+    pub invoice_expiry_seconds: u64,
+    /// Session timeouts handed to the wallet adapter.
+    pub timeouts: SessionOptions,
+    /// Where reports are written.
+    pub out_dir: PathBuf,
+    /// Where run-guard state files live.
+    pub guard_dir: PathBuf,
+    /// Whether stale PAYING and AMBIGUOUS guard files may be cleared.
+    pub clear_guard: bool,
+}
+
+impl Default for RunConfig {
+    fn default() -> Self {
+        Self {
+            env_class: EnvClass::Sandbox,
+            approve_payment_sats: None,
+            live_ack: None,
+            amount_msat: DEFAULT_AMOUNT_MSAT,
+            invoice_expiry_seconds: DEFAULT_INVOICE_EXPIRY_SECONDS,
+            timeouts: SessionOptions::default(),
+            out_dir: PathBuf::from("reports"),
+            guard_dir: PathBuf::from("runs"),
+            clear_guard: false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DEFAULT_AMOUNT_MSAT, RunConfig};
+    use tally_core::report::EnvClass;
+
+    #[test]
+    fn defaults_are_sandbox_twenty_one_sats() {
+        let config = RunConfig::default();
+
+        assert_eq!(config.env_class, EnvClass::Sandbox);
+        assert_eq!(config.amount_msat, DEFAULT_AMOUNT_MSAT);
+        assert_eq!(config.amount_msat, 21_000);
+        assert_eq!(config.approve_payment_sats, None);
+        assert_eq!(config.out_dir.to_str(), Some("reports"));
+        assert_eq!(config.guard_dir.to_str(), Some("runs"));
+        assert!(!config.clear_guard);
+    }
+}

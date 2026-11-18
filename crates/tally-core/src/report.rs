@@ -57,6 +57,9 @@ pub enum EndpointClass {
     /// A third-party sandbox service.
     #[serde(rename = "external_sandbox")]
     ExternalSandbox,
+    /// The run tested no protected endpoint at all.
+    #[serde(rename = "none")]
+    None,
 }
 
 /// The NWC client library in use.
@@ -88,6 +91,17 @@ pub enum WalletRole {
     /// The wallet that issues the invoice.
     #[serde(rename = "receiver")]
     Receiver,
+}
+
+impl WalletRole {
+    /// The field value used in reports and on the command line.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Payer => "payer",
+            Self::Receiver => "receiver",
+        }
+    }
 }
 
 /// One wallet, identified by role and service public key only.
@@ -358,10 +372,12 @@ pub struct RunReport {
 
 /// The exit code for a finished report.
 ///
-/// `0` when every required test passed; otherwise `1` for FAIL, `3` for
-/// BLOCKED, `4` for UNSUPPORTED and `5` for NOT_TESTED, in that order. Tests
-/// that are not required never change the code. `2` is never returned here; it
-/// is reserved for usage and configuration errors before any test runs.
+/// `0` when every required test passed; otherwise `1` for FAIL, `4` for
+/// UNSUPPORTED, `3` for BLOCKED and `5` for NOT_TESTED, in that order. A
+/// definitive "the wallet does not offer this" therefore outranks a test that
+/// could not run because of it. Tests that are not required never change the
+/// code. `2` is never returned here; it is reserved for usage and configuration
+/// errors before any test runs.
 #[must_use]
 pub fn exit_code(report: &RunReport) -> i32 {
     let statuses = report
@@ -377,10 +393,10 @@ pub fn exit_code(report: &RunReport) -> i32 {
 
     if statuses.contains(&Status::Fail) {
         EXIT_REQUIRED_FAILED
-    } else if statuses.contains(&Status::Blocked) {
-        EXIT_REQUIRED_BLOCKED
     } else if statuses.contains(&Status::Unsupported) {
         EXIT_REQUIRED_UNSUPPORTED
+    } else if statuses.contains(&Status::Blocked) {
+        EXIT_REQUIRED_BLOCKED
     } else if statuses.contains(&Status::NotTested) {
         EXIT_REQUIRED_NOT_TESTED
     } else {
@@ -482,18 +498,17 @@ mod tests {
         ];
         assert_eq!(exit_code(&report(&mixed)), EXIT_REQUIRED_FAILED);
 
+        // A definitive UNSUPPORTED outranks a BLOCKED test that could not run
+        // because of it, so an unsupported required method exits 4.
         let without_fail = [
             (Status::Unsupported, true),
             (Status::NotTested, true),
             (Status::Blocked, true),
         ];
-        assert_eq!(exit_code(&report(&without_fail)), EXIT_REQUIRED_BLOCKED);
+        assert_eq!(exit_code(&report(&without_fail)), EXIT_REQUIRED_UNSUPPORTED);
 
-        let without_fail_blocked = [(Status::Unsupported, true), (Status::NotTested, true)];
-        assert_eq!(
-            exit_code(&report(&without_fail_blocked)),
-            EXIT_REQUIRED_UNSUPPORTED
-        );
+        let blocked_only = [(Status::Blocked, true), (Status::NotTested, true)];
+        assert_eq!(exit_code(&report(&blocked_only)), EXIT_REQUIRED_BLOCKED);
     }
 
     #[test]

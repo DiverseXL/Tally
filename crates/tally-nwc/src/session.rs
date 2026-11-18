@@ -571,6 +571,30 @@ impl MadeInvoice {
     pub const fn seconds_until_expiry(&self) -> u64 {
         self.seconds_until_expiry
     }
+
+    /// Builds an invoice record from its parts.
+    ///
+    /// For wallet implementations other than [`WalletSession`], for example a
+    /// wallet used in tests. It grants nothing: paying still needs a
+    /// [`PaymentPermit`] for a parsed invoice.
+    #[must_use]
+    pub fn from_parts(
+        invoice: SecretString,
+        amount_msat: u64,
+        network: &'static str,
+        payment_hash_hex: Option<String>,
+        wallet_payment_hash_hex: Option<String>,
+        seconds_until_expiry: u64,
+    ) -> Self {
+        Self {
+            invoice,
+            amount_msat,
+            network,
+            payment_hash_hex,
+            wallet_payment_hash_hex,
+            seconds_until_expiry,
+        }
+    }
 }
 
 impl fmt::Debug for MadeInvoice {
@@ -604,6 +628,14 @@ pub struct PaidInvoice {
 }
 
 impl PaidInvoice {
+    /// The preimage, held as a secret.
+    ///
+    /// The runner needs it to present L402 credentials; it must not be printed.
+    #[must_use]
+    pub fn preimage(&self) -> &SecretString {
+        &self.preimage
+    }
+
     /// Whether the wallet returned a non-empty preimage.
     #[must_use]
     pub fn preimage_present(&self) -> bool {
@@ -620,6 +652,18 @@ impl PaidInvoice {
     #[must_use]
     pub fn preimage_matches(&self, payment_hash_hex: &str) -> bool {
         verify_preimage_sha256(self.preimage.expose_secret(), payment_hash_hex)
+    }
+
+    /// Builds a paid-invoice record from a preimage.
+    ///
+    /// For wallet implementations other than [`WalletSession`], for example a
+    /// wallet used in tests.
+    #[must_use]
+    pub fn from_preimage(preimage: SecretString, fees_paid_msat: Option<u64>) -> Self {
+        Self {
+            preimage,
+            fees_paid_msat,
+        }
     }
 }
 

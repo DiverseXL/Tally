@@ -57,6 +57,7 @@ pub fn make_test_invoice(amount_msat: u64, expiry_seconds: u64) -> TestInvoice {
         amount_msat,
         expiry_seconds,
         counter,
+        0,
     )
 }
 
@@ -84,6 +85,37 @@ pub fn sign_test_invoice(
         amount_msat,
         expiry_seconds,
         counter,
+        0,
+    )
+}
+
+/// TEST ONLY: signs an invoice whose timestamp is `age_seconds` in the past.
+///
+/// TEST ONLY: an invoice older than its expiry is already expired, which is
+/// what the offline tests need. Nothing touches the network.
+#[must_use]
+pub fn make_test_invoice_aged(
+    amount_msat: u64,
+    expiry_seconds: u64,
+    age_seconds: u64,
+) -> TestInvoice {
+    let counter = COUNTER.fetch_add(1, Ordering::SeqCst);
+
+    let mut preimage = [0u8; 32];
+    preimage[..8].copy_from_slice(&counter.to_le_bytes());
+    preimage[8..].copy_from_slice(&[0x5bu8; 24]);
+
+    let digest = Sha256::digest(preimage);
+    let mut payment_hash = [0u8; 32];
+    payment_hash.copy_from_slice(digest.as_ref());
+
+    sign_invoice(
+        &preimage,
+        payment_hash,
+        amount_msat,
+        expiry_seconds,
+        counter,
+        age_seconds,
     )
 }
 
@@ -93,6 +125,7 @@ fn sign_invoice(
     amount_msat: u64,
     expiry_seconds: u64,
     counter: u64,
+    age_seconds: u64,
 ) -> TestInvoice {
     let private_key = SecretKey::from_slice(&[3u8; 32]).expect("static key");
     let payment_hash_hash = sha256::Hash::from_slice(&payment_hash).expect("32 bytes");
@@ -105,7 +138,7 @@ fn sign_invoice(
         .amount_milli_satoshis(amount_msat)
         .min_final_cltv_expiry_delta(144)
         .expiry_time(Duration::from_secs(expiry_seconds))
-        .timestamp(SystemTime::now())
+        .timestamp(SystemTime::now() - Duration::from_secs(age_seconds))
         .build_signed(|hash| Secp256k1::new().sign_ecdsa_recoverable(hash, &private_key))
         .expect("signable invoice")
         .to_string();

@@ -4,5 +4,18 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[dependencies]
+secrecy = { workspace = true }
+serde_json = { workspace = true }
+tally-core = { path = "../tally-core" }
+tally-l402 = { path = "../tally-l402" }
+tally-nwc = { path = "../tally-nwc" }
+tokio = { workspace = true, features = ["rt", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tally-l402 = { path = "../tally-l402", features = ["test-support"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
 [lints]
 workspace = true

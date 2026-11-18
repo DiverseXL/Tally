@@ -11,7 +11,7 @@ use reqwest::Url;
 use reqwest::header::{AUTHORIZATION, HeaderValue, WWW_AUTHENTICATE};
 use reqwest::redirect::Policy;
 
-use crate::challenge::{self, Challenge};
+use crate::challenge::{self, Challenge, SCHEME};
 
 /// Connect timeout of the client.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -165,6 +165,46 @@ impl L402Client {
             parsed.macaroon_b64().to_owned(),
             parsed.invoice().to_owned(),
         ))
+    }
+
+    /// Requests the URL with a macaroon and no preimage.
+    ///
+    /// Used to record the server's answer to credentials that cannot unlock
+    /// the resource.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientErrorKind::UrlNotAllowed`] for a non-loopback or non-http URL,
+    /// [`ClientErrorKind::BadRequest`] when the macaroon cannot be sent.
+    pub async fn fetch_with_macaroon_only(
+        &self,
+        url: &str,
+        macaroon_b64: &str,
+    ) -> Result<ClientResponse, ClientError> {
+        let url = guard_url(url)?;
+
+        if macaroon_b64.is_empty() || macaroon_b64.chars().any(char::is_control) {
+            return Err(ClientError::new(ClientErrorKind::BadRequest));
+        }
+
+        let header = HeaderValue::from_str(&format!("{SCHEME} {macaroon_b64}"))
+            .map_err(|_| ClientError::new(ClientErrorKind::BadRequest))?;
+
+        let response = self
+            .http
+            .get(url)
+            .header(AUTHORIZATION, header)
+            .send()
+            .await
+            .map_err(|_| ClientError::new(ClientErrorKind::Transport))?;
+
+        let status = response.status().as_u16();
+        let body = response
+            .text()
+            .await
+            .map_err(|_| ClientError::new(ClientErrorKind::Transport))?;
+
+        Ok(ClientResponse { status, body })
     }
 
     /// Requests the URL with one macaroon and one preimage.
