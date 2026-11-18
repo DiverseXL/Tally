@@ -30,8 +30,8 @@ use tally_core::{new_run_id, now_rfc3339};
 use tally_nwc::connection::read_secret_line;
 use tally_nwc::session::NWC_CLIENT_VERSION;
 use tally_nwc::{
-    ConnectReport, InfoEventRecord, NwcError, PaymentPermit, SessionOptions, WalletInfo,
-    WalletSession,
+    ConnectReport, EncryptionMode, InfoEventRecord, NwcError, PaymentPermit, SessionOptions,
+    WalletInfo, WalletSession, select_encryption_mode,
 };
 
 /// Amount the proof moves, in millisatoshis.
@@ -249,6 +249,11 @@ async fn run(approved_sats: Option<u64>) -> ExitCode {
     apply_info(&mut payer, payer_info, &mut out);
     apply_info(&mut receiver, receiver_info, &mut out);
 
+    // Cipher choice: the info event's encryption tag decides it, and the
+    // choice is passed to the client builder explicitly.
+    apply_encryption(&mut payer, &mut out).await;
+    apply_encryption(&mut receiver, &mut out).await;
+
     // get_info, concurrently.
     let (payer_details, receiver_details) =
         tokio::join!(payer.session.get_info(), receiver.session.get_info());
@@ -385,7 +390,11 @@ async fn run(approved_sats: Option<u64>) -> ExitCode {
             class: EnvClass::Sandbox,
             endpoint_class: EndpointClass::ExternalSandbox,
             nwc_client: NwcClientIdentity::new("nwc", NWC_CLIENT_VERSION),
-            encryption_mode_selected: None,
+            encryption_mode_selected: payer
+                .session
+                .encryption_mode()
+                .map(EncryptionMode::as_str)
+                .map(str::to_owned),
             network_reported: receiver
                 .details
                 .as_ref()
@@ -706,17 +715,41 @@ fn apply_info(
     }
 }
 
+/// Picks the cipher from the info event and rebuilds the connection with it.
+async fn apply_encryption(wallet: &mut WalletState, out: &mut Output) {
+    let mode = select_encryption_mode(&wallet.capabilities.info_event.encryption_tokens);
+
+    match wallet.session.set_encryption_mode(mode).await {
+        Ok(report) => out.line(format!(
+            "[{}] encryption_mode={} relays_connected={}",
+            wallet.label,
+            mode.as_str(),
+            report.relays_connected
+        )),
+        Err(error) => {
+            out.line(format!(
+                "[{}] encryption_mode={} reconnect=failed kind={} detail={}",
+                wallet.label,
+                mode.as_str(),
+                error.kind(),
+                error.detail()
+            ));
+            wallet.connect_error = Some(error);
+        }
+    }
+}
+
 fn apply_details(wallet: &mut WalletState, result: Result<WalletInfo, NwcError>, out: &mut Output) {
     match result {
         Ok(details) => {
             out.line(format!(
-                "[{}] get_info alias={:?} network={:?} methods_count={} notifications_count={} extensions_count={} block_height={:?}",
+                "[{}] get_info alias={:?} network={:?} methods_count={} notifications_count={} get_info_extensions={:?} block_height={:?}",
                 wallet.label,
                 details.alias,
                 details.network,
                 details.methods.len(),
                 details.notifications.len(),
-                details.extensions.len(),
+                details.extensions.as_ref(),
                 details.block_height
             ));
             out.line(format!(

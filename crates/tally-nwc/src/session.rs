@@ -59,8 +59,43 @@ impl Default for SessionOptions {
 
 /// One connected wallet.
 pub struct WalletSession {
+    uri: NostrWalletConnectUri,
     client: NostrWalletConnect,
     options: SessionOptions,
+    encryption_mode: Option<EncryptionMode>,
+}
+
+/// The NIP-47 encryption mode the client is told to use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionMode {
+    /// NIP-44 version 2.
+    Nip44V2,
+    /// The legacy NIP-04.
+    Nip04,
+}
+
+impl EncryptionMode {
+    /// The field value used in reports.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Nip44V2 => "nip44_v2",
+            Self::Nip04 => "nip04",
+        }
+    }
+}
+
+/// Applies the NIP-47 ciphers rule to the info event's `encryption` tokens.
+///
+/// `nip44_v2` when the tag lists it; `nip04` otherwise, including when there is
+/// no `encryption` tag at all.
+#[must_use]
+pub fn select_encryption_mode(tokens: &[String]) -> EncryptionMode {
+    if tokens.iter().any(|token| token == "nip44_v2") {
+        EncryptionMode::Nip44V2
+    } else {
+        EncryptionMode::Nip04
+    }
 }
 
 impl WalletSession {
@@ -89,11 +124,48 @@ impl WalletSession {
         let uri = NostrWalletConnectUri::parse(connection.expose_secret())
             .map_err(|_| NwcError::new(NwcErrorKind::InvalidInput, "connection_unparseable"))?;
 
-        let client = NostrWalletConnect::builder(uri)
+        let client = NostrWalletConnect::builder(uri.clone())
             .timeout(options.request_timeout)
             .build();
 
-        Ok(Self { client, options })
+        Ok(Self {
+            uri,
+            client,
+            options,
+            encryption_mode: None,
+        })
+    }
+
+    /// Rebuilds the client with an explicit cipher and reconnects.
+    ///
+    /// The choice is passed to the builder through `force_nip44_v2` or
+    /// `force_nip04`, so the mode the client uses is known rather than left to
+    /// the library's own detection. Rebuilding drops the previous relay
+    /// connections, so this reconnects and returns the new report.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NwcErrorKind::Transport`] when a relay cannot be added.
+    pub async fn set_encryption_mode(
+        &mut self,
+        mode: EncryptionMode,
+    ) -> Result<ConnectReport, NwcError> {
+        let builder =
+            NostrWalletConnect::builder(self.uri.clone()).timeout(self.options.request_timeout);
+
+        self.client = match mode {
+            EncryptionMode::Nip44V2 => builder.force_nip44_v2().build(),
+            EncryptionMode::Nip04 => builder.force_nip04().build(),
+        };
+        self.encryption_mode = Some(mode);
+
+        self.connect().await
+    }
+
+    /// The cipher the session was told to use, if one was chosen.
+    #[must_use]
+    pub const fn encryption_mode(&self) -> Option<EncryptionMode> {
+        self.encryption_mode
     }
 
     /// The wallet service public key, hex.
@@ -192,9 +264,9 @@ impl WalletSession {
                 .map(|method| method.as_str().to_owned())
                 .collect(),
             notifications: info.notifications,
-            // The nostr 0.45.7 GetInfoResponse has no `extensions` field, so it
-            // is always empty here. See docs/STATUS.md.
-            extensions: Vec::new(),
+            // The nostr 0.45.7 GetInfoResponse has no `extensions` field, so
+            // the list is not exposed rather than empty. See docs/STATUS.md.
+            extensions: None,
         })
     }
 
@@ -425,8 +497,9 @@ pub struct WalletInfo {
     pub methods: Vec<String>,
     /// Supported notifications.
     pub notifications: Vec<String>,
-    /// Extensions; always empty against nostr 0.45.7, which has no such field.
-    pub extensions: Vec<String>,
+    /// Extensions; `None` against nostr 0.45.7, whose response has no such
+    /// field, so the client library does not expose them at all.
+    pub extensions: Option<Vec<String>>,
 }
 
 impl WalletInfo {
@@ -624,8 +697,8 @@ mod tests {
     use secrecy::SecretString;
 
     use super::{
-        InvoiceLookup, MadeInvoice, PaidInvoice, SessionOptions, WalletSession, host_only,
-        verify_preimage_sha256,
+        EncryptionMode, InvoiceLookup, MadeInvoice, PaidInvoice, SessionOptions, WalletSession,
+        host_only, select_encryption_mode, verify_preimage_sha256,
     };
     use crate::error::NwcErrorKind;
     use crate::permit::PaymentPermit;
@@ -750,6 +823,20 @@ mod tests {
             EnvClass::Sandbox,
             None,
         );
+    }
+
+    #[test]
+    fn encryption_mode_follows_the_info_event_tag() {
+        assert_eq!(
+            select_encryption_mode(&[String::from("nip44_v2"), String::from("nip04")]),
+            EncryptionMode::Nip44V2
+        );
+        assert_eq!(
+            select_encryption_mode(&[String::from("nip04")]),
+            EncryptionMode::Nip04
+        );
+        // No encryption tag at all.
+        assert_eq!(select_encryption_mode(&[]), EncryptionMode::Nip04);
     }
 
     #[test]

@@ -13,6 +13,7 @@ pub mod session;
 pub use error::{NwcError, NwcErrorKind};
 pub use permit::{LIVE_ACKNOWLEDGEMENT, PaymentPermit};
 pub use session::{
-    ConnectReport, InfoEventRecord, InvoiceLookup, MadeInvoice, NWC_CLIENT_VERSION, PaidInvoice,
-    SessionOptions, WalletInfo, WalletSession, verify_preimage_sha256,
+    ConnectReport, EncryptionMode, InfoEventRecord, InvoiceLookup, MadeInvoice, NWC_CLIENT_VERSION,
+    PaidInvoice, SessionOptions, WalletInfo, WalletSession, select_encryption_mode,
+    verify_preimage_sha256,
 };

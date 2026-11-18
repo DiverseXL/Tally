@@ -168,13 +168,23 @@ impl InfoEventCapabilities {
     }
 }
 
+/// The info-event token that advertises notification support.
+///
+/// It is a flag, not a method: it is compared with the `get_info` notification
+/// list being non-empty, never with the `get_info` method list.
+pub const NOTIFICATIONS_FLAG: &str = "notifications";
+
 /// Data of the `get_info` response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GetInfoCapabilities {
     /// Methods the wallet reports for this connection, verbatim.
     pub methods: Vec<String>,
-    /// Extension ids, verbatim.
-    pub extensions: Vec<String>,
+    /// Extension ids, when the client library exposes them at all.
+    ///
+    /// `None` means the library has no such field in its `get_info` response,
+    /// which is the case for nostr 0.45.7: the field is not exposed, so it is
+    /// not an empty list. Extension ids come from the info event only.
+    pub extensions: Option<Vec<String>>,
     /// Supported notification types, verbatim.
     pub notifications: Vec<String>,
     /// Reported network, if any.
@@ -231,10 +241,16 @@ impl Capabilities {
         }
     }
 
-    /// Methods listed by exactly one of the two sources.
+    /// Capabilities listed by exactly one of the two sources.
     ///
-    /// Empty when either source has no method list, because there is nothing to
-    /// compare against.
+    /// Method names are compared between the info-event content and the
+    /// `get_info` method list. The token [`NOTIFICATIONS_FLAG`] is not a method
+    /// name: it is compared with the `get_info` notification list being
+    /// non-empty, so `notifications` in both places is agreement, not a
+    /// discrepancy.
+    ///
+    /// Empty when there is no `get_info` data or no info-event method token,
+    /// because there is nothing to compare against.
     #[must_use]
     pub fn discrepancies(&self) -> Vec<Discrepancy> {
         let Some(get_info) = &self.get_info else {
@@ -243,13 +259,19 @@ impl Capabilities {
 
         let info_methods = self.info_event.method_tokens();
 
-        if info_methods.is_empty() || get_info.methods.is_empty() {
+        if info_methods.is_empty() {
             return Vec::new();
         }
 
         let mut found = Vec::new();
 
-        for method in &info_methods {
+        let info_plain = info_methods
+            .iter()
+            .filter(|method| method.as_str() != NOTIFICATIONS_FLAG)
+            .cloned()
+            .collect::<Vec<String>>();
+
+        for method in &info_plain {
             if !contains(&get_info.methods, method) && !contains_method(&found, method) {
                 found.push(Discrepancy {
                     method: method.clone(),
@@ -260,13 +282,33 @@ impl Capabilities {
         }
 
         for method in &get_info.methods {
-            if !contains(&info_methods, method) && !contains_method(&found, method) {
+            if !contains(&info_plain, method)
+                && method.as_str() != NOTIFICATIONS_FLAG
+                && !contains_method(&found, method)
+            {
                 found.push(Discrepancy {
                     method: method.clone(),
                     present_in: CapabilitySource::GetInfo,
                     absent_in: CapabilitySource::InfoEvent,
                 });
             }
+        }
+
+        let advertised_notifications = contains(&info_methods, NOTIFICATIONS_FLAG);
+        let wallet_notifications = !get_info.notifications.is_empty();
+
+        match (advertised_notifications, wallet_notifications) {
+            (true, false) => found.push(Discrepancy {
+                method: String::from(NOTIFICATIONS_FLAG),
+                present_in: CapabilitySource::InfoEvent,
+                absent_in: CapabilitySource::GetInfo,
+            }),
+            (false, true) => found.push(Discrepancy {
+                method: String::from(NOTIFICATIONS_FLAG),
+                present_in: CapabilitySource::GetInfo,
+                absent_in: CapabilitySource::InfoEvent,
+            }),
+            _ => {}
         }
 
         found.sort_by(|left, right| left.method.cmp(&right.method));
@@ -357,11 +399,69 @@ mod tests {
     fn get_info(methods: &[&str]) -> GetInfoCapabilities {
         GetInfoCapabilities {
             methods: methods.iter().map(|method| (*method).to_owned()).collect(),
-            extensions: Vec::new(),
+            // The library exposes no extension list, so the field is absent.
+            extensions: None,
             notifications: Vec::new(),
             network: Some(String::from("signet")),
             alias: Some(String::from("test-wallet")),
         }
+    }
+
+    fn with_notifications(mut get_info: GetInfoCapabilities) -> GetInfoCapabilities {
+        get_info.notifications = vec![String::from("payment_received")];
+        get_info
+    }
+
+    #[test]
+    fn notifications_flag_agrees_with_a_non_empty_notification_list() {
+        let info = InfoEventCapabilities::from_content(
+            String::from("pay_invoice notifications"),
+            Vec::new(),
+            Vec::new(),
+        );
+        let capabilities =
+            Capabilities::new(info, Some(with_notifications(get_info(&["pay_invoice"]))));
+
+        assert!(capabilities.discrepancies().is_empty());
+    }
+
+    #[test]
+    fn notifications_flag_without_wallet_notifications_is_a_discrepancy() {
+        let info = InfoEventCapabilities::from_content(
+            String::from("pay_invoice notifications"),
+            Vec::new(),
+            Vec::new(),
+        );
+        let capabilities = Capabilities::new(info, Some(get_info(&["pay_invoice"])));
+
+        let discrepancies = capabilities.discrepancies();
+        assert_eq!(discrepancies.len(), 1);
+        assert_eq!(discrepancies[0].method, "notifications");
+        assert_eq!(discrepancies[0].present_in, CapabilitySource::InfoEvent);
+        assert_eq!(discrepancies[0].absent_in, CapabilitySource::GetInfo);
+    }
+
+    #[test]
+    fn wallet_notifications_without_the_info_flag_is_a_discrepancy() {
+        let info = InfoEventCapabilities::from_content(
+            String::from("pay_invoice"),
+            Vec::new(),
+            Vec::new(),
+        );
+        let capabilities =
+            Capabilities::new(info, Some(with_notifications(get_info(&["pay_invoice"]))));
+
+        let discrepancies = capabilities.discrepancies();
+        assert_eq!(discrepancies.len(), 1);
+        assert_eq!(discrepancies[0].method, "notifications");
+        assert_eq!(discrepancies[0].present_in, CapabilitySource::GetInfo);
+        assert_eq!(discrepancies[0].absent_in, CapabilitySource::InfoEvent);
+    }
+
+    #[test]
+    fn get_info_extensions_are_absent_not_empty() {
+        let get_info = get_info(&["pay_invoice"]);
+        assert_eq!(get_info.extensions, None);
     }
 
     fn no_get_info() -> Option<GetInfoCapabilities> {
