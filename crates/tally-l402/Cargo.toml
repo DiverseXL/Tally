@@ -4,9 +4,17 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[features]
+# TEST ONLY helpers, off by default. Only a dev-dependency turns this on, so no
+# runtime build of this crate (or of anything that depends on it normally)
+# contains the offline invoice generator.
+test-support = ["dep:bitcoin"]
+
 [dependencies]
 axum = { workspace = true, default-features = false, features = ["http1", "tokio"] }
 base64 = { workspace = true, default-features = false, features = ["std"] }
+# Only the TEST ONLY generator signs invoices; no other code path uses it.
+bitcoin = { workspace = true, optional = true, features = ["secp-recovery", "std"] }
 getrandom = { workspace = true, features = ["std"] }
 libmacaroon = { workspace = true }
 lightning-invoice = { workspace = true, features = ["std"] }
@@ -19,7 +27,8 @@ tally-nwc = { path = "../tally-nwc" }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 
 [dev-dependencies]
-bitcoin = { workspace = true, features = ["secp-recovery", "std"] }
+# Enables the TEST ONLY helpers for this crate's own test binaries only.
+tally-l402 = { path = ".", features = ["test-support"] }
 
 [lints]
 workspace = true

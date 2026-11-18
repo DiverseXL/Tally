@@ -103,16 +103,21 @@ impl std::error::Error for ChallengeError {}
 #[derive(Clone, PartialEq, Eq)]
 pub struct Challenge {
     http_status: u16,
+    scheme: String,
     macaroon_b64: String,
     invoice: String,
 }
 
 impl Challenge {
     /// Builds a challenge from its parts, for example from a parsed header.
+    ///
+    /// `scheme` is kept exactly as it arrived on the wire; matching it is
+    /// case-insensitive, so it is not normalised.
     #[must_use]
-    pub fn new(http_status: u16, macaroon_b64: String, invoice: String) -> Self {
+    pub fn new(http_status: u16, scheme: String, macaroon_b64: String, invoice: String) -> Self {
         Self {
             http_status,
+            scheme,
             macaroon_b64,
             invoice,
         }
@@ -122,6 +127,12 @@ impl Challenge {
     #[must_use]
     pub const fn http_status(&self) -> u16 {
         self.http_status
+    }
+
+    /// The authentication scheme exactly as parsed from the wire.
+    #[must_use]
+    pub fn scheme(&self) -> &str {
+        &self.scheme
     }
 
     /// The base64 macaroon, sensitive.
@@ -141,6 +152,7 @@ impl fmt::Debug for Challenge {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Challenge")
             .field("http_status", &self.http_status)
+            .field("scheme", &self.scheme)
             .field("macaroon", &"[REDACTED]")
             .field("invoice", &"[REDACTED]")
             .finish()
@@ -151,8 +163,8 @@ impl fmt::Display for Challenge {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "L402 challenge (status {}, credentials redacted)",
-            self.http_status
+            "{} challenge (status {}, credentials redacted)",
+            self.scheme, self.http_status
         )
     }
 }
@@ -246,7 +258,7 @@ pub fn format_www_authenticate(
 pub fn parse_www_authenticate(value: &str) -> Result<Challenge, ChallengeError> {
     validate_common(value)?;
 
-    let rest = strip_scheme(value)?;
+    let (scheme, rest) = strip_scheme(value)?;
     let mut macaroon = None;
     let mut invoice = None;
     let mut rest = rest;
@@ -306,7 +318,7 @@ pub fn parse_www_authenticate(value: &str) -> Result<Challenge, ChallengeError> 
         return Err(ChallengeError::new(ChallengeErrorKind::MissingParameter));
     }
 
-    Ok(Challenge::new(402, macaroon, invoice))
+    Ok(Challenge::new(402, scheme.to_owned(), macaroon, invoice))
 }
 
 /// Formats an `Authorization` value for one macaroon and one preimage.
@@ -339,7 +351,8 @@ pub fn format_authorization(
 pub fn parse_authorization(value: &str) -> Result<Credentials, ChallengeError> {
     validate_common(value)?;
 
-    let rest = strip_scheme(value)?.trim();
+    let (_, rest) = strip_scheme(value)?;
+    let rest = rest.trim();
 
     if rest.is_empty() {
         return Err(ChallengeError::new(ChallengeErrorKind::EmptyToken));
@@ -379,7 +392,7 @@ fn validate_common(value: &str) -> Result<(), ChallengeError> {
     Ok(())
 }
 
-fn strip_scheme(value: &str) -> Result<&str, ChallengeError> {
+fn strip_scheme(value: &str) -> Result<(&str, &str), ChallengeError> {
     let trimmed = value.trim_start();
     let (scheme, rest) = match trimmed.split_once([' ', '\t']) {
         Some((scheme, rest)) => (scheme, rest),
@@ -394,7 +407,7 @@ fn strip_scheme(value: &str) -> Result<&str, ChallengeError> {
         return Err(ChallengeError::new(ChallengeErrorKind::MissingParameter));
     }
 
-    Ok(rest)
+    Ok((scheme, rest))
 }
 
 fn validate_macaroon(macaroon: &str) -> Result<(), ChallengeError> {
@@ -445,12 +458,14 @@ mod tests {
         assert_eq!(challenge.macaroon_b64(), SPEC_MACAROON);
         assert_eq!(challenge.invoice(), SPEC_INVOICE);
         assert_eq!(challenge.http_status(), 402);
+        assert_eq!(challenge.scheme(), "L402");
     }
 
     #[test]
     fn scheme_matching_is_case_insensitive() {
         let header = format!("l402 macaroon=\"{SPEC_MACAROON}\", invoice=\"{SPEC_INVOICE}\"");
-        assert!(parse_www_authenticate(&header).is_ok());
+        let challenge = parse_www_authenticate(&header).unwrap();
+        assert_eq!(challenge.scheme(), "l402");
 
         let upper = format!("L402 MACAROON=\"{SPEC_MACAROON}\", INVOICE=\"{SPEC_INVOICE}\"");
         assert_eq!(

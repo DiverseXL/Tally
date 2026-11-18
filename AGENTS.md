@@ -47,6 +47,17 @@ Tally is an open-source developer tool (Dakar Bitcoin Hack 2026 entry) that test
   export PATH="/c/Users/user/.cargo/bin:/c/Users/user/AppData/Local/Microsoft/WinGet/Packages/BrechtSanders.WinLibs.POSIX.MSVCRT_Microsoft.Winget.Source_8wekyb3d8bbwe/mingw64/bin:$PATH"
 - Long builds can time out your tool: run them in the background (nohup ... > log 2>&1 &) and poll the log.
 
+## Session protocol
+
+- Resume protocol: at the start of every step, run `git status --short` and `git log --oneline -n 8`. If the tree is not clean, or commits for the step already exist, report that first, verify the existing work against the step's requirements, and continue from it. Do not restart a step whose work is already on disk.
+- Context hygiene: never cat large files or print long logs. Redirect long output to a file under /tmp and print only counts, grep lines or `tail -n 40`. For gates print the exit lines plus `grep "test result"`. Keep reports compact; paste CLI summaries in full because they are compact by design. Never describe output you did not obtain. If something will not fit in a report, say so and stop with the step marked BLOCKED rather than summarising silently.
+- Commit at the end of every task of a step, with the message the step gives, so a context reset never loses work.
+
+## TEST ONLY approvals
+
+- TEST ONLY invoice generator, reuse: the offline invoice generator that signs real BOLT11 invoices is moved from `crates/tally-l402/tests/common` into `crates/tally-l402/src/test_support.rs`, behind the off-by-default cargo feature `test-support` of tally-l402, so tally-runner's tests can reuse it through a dev-dependency. Every item keeps a doc comment starting with "TEST ONLY", and no runtime path (CLI, server, examples) can reach it, because only a dev-dependency enables the feature.
+- TEST ONLY fake wallets: a fake wallet pair in `crates/tally-runner/tests/common` implements the `WalletApi` trait with configurable failure modes. Only the wallets are faked: the fixture, guard, permit, preimage verification and reports are the real code. The fake pair is compiled only into the tally-runner test binary.
+
 ## Commands that must stay green
 
   cargo fmt --all --check

@@ -9,6 +9,7 @@ pub mod error;
 pub mod guard;
 pub mod permit;
 pub mod session;
+pub mod wallet_api;
 
 pub use error::{NwcError, NwcErrorKind};
 pub use permit::{LIVE_ACKNOWLEDGEMENT, PaymentPermit};
@@ -17,3 +18,4 @@ pub use session::{
     PaidInvoice, SessionOptions, WalletInfo, WalletSession, select_encryption_mode,
     verify_preimage_sha256,
 };
+pub use wallet_api::WalletApi;

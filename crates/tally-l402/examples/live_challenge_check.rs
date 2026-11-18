@@ -15,7 +15,7 @@ use std::sync::Arc;
 use secrecy::{ExposeSecret, SecretString};
 
 use tally_core::redact::Scrubber;
-use tally_l402::challenge::SCHEME;
+
 use tally_l402::client::L402Client;
 use tally_l402::fixture::{self, FixtureConfig, NwcInvoiceSource};
 use tally_l402::invoice;
@@ -217,7 +217,7 @@ async fn run() -> ExitCode {
         .is_some_and(|network| facts.check_network(network).is_ok());
 
     out.line(format!("http_status={}", challenge.http_status()));
-    out.line(format!("scheme={SCHEME}"));
+    out.line(format!("scheme={}", challenge.scheme()));
     out.line(format!(
         "macaroon_present={}",
         !challenge.macaroon_b64().is_empty()

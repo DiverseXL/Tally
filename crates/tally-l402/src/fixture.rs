@@ -18,6 +18,7 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderValue, Response, StatusCode, header};
 use axum::routing::get;
 use secrecy::{ExposeSecret, SecretString};
+use tally_nwc::WalletApi;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -136,30 +137,43 @@ pub trait InvoiceSource {
     ) -> impl Future<Output = Result<SourcedInvoice, InvoiceSourceError>> + Send;
 }
 
-/// A source backed by a real wallet session, used as the receiver.
-#[derive(Clone)]
-pub struct NwcInvoiceSource {
-    session: Arc<tally_nwc::WalletSession>,
+/// A source backed by a wallet, used as the receiver.
+///
+/// Generic over [`WalletApi`](tally_nwc::WalletApi): the real wallet and the
+/// offline test wallet both fit, and the choice is made at compile time.
+pub struct NwcInvoiceSource<W: WalletApi> {
+    wallet: Arc<W>,
 }
 
-impl NwcInvoiceSource {
-    /// Wraps a connected wallet session.
+impl<W: WalletApi> NwcInvoiceSource<W> {
+    /// Wraps a wallet.
     #[must_use]
-    pub fn new(session: Arc<tally_nwc::WalletSession>) -> Self {
-        Self { session }
+    pub fn new(wallet: Arc<W>) -> Self {
+        Self { wallet }
     }
 }
 
-impl InvoiceSource for NwcInvoiceSource {
+impl<W: WalletApi> Clone for NwcInvoiceSource<W> {
+    fn clone(&self) -> Self {
+        Self {
+            wallet: Arc::clone(&self.wallet),
+        }
+    }
+}
+
+impl<W> InvoiceSource for NwcInvoiceSource<W>
+where
+    W: WalletApi + Send + Sync + 'static,
+{
     fn make_invoice(
         &self,
         amount_msat: u64,
         expiry_seconds: u64,
     ) -> impl Future<Output = Result<SourcedInvoice, InvoiceSourceError>> + Send {
-        let session = Arc::clone(&self.session);
+        let wallet = Arc::clone(&self.wallet);
 
         async move {
-            let made = session
+            let made = wallet
                 .make_invoice(amount_msat, INVOICE_DESCRIPTION, expiry_seconds)
                 .await
                 .map_err(|error| InvoiceSourceError::new(error.detail()))?;

@@ -13,6 +13,8 @@ pub mod client;
 pub mod fixture;
 pub mod invoice;
 pub mod macaroon;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 
 pub use challenge::{
     Challenge, ChallengeError, ChallengeErrorKind, Credentials, MAX_HEADER_BYTES,

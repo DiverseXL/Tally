@@ -161,6 +161,7 @@ impl L402Client {
 
         Ok(Challenge::new(
             status,
+            parsed.scheme().to_owned(),
             parsed.macaroon_b64().to_owned(),
             parsed.invoice().to_owned(),
         ))
