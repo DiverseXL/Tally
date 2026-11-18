@@ -57,4 +57,10 @@ Tally is a developer tool, not a wallet and not an audit. This page states what 
 
 ## Known advisories
 
-To be filled from the dependency audit run in this step, with the date and the database state.
+Audited on 2026-11-18 with cargo-audit 0.23.0 against the RustSec advisory database at commit `472a4c9a785030434f15d7da84964d60fbe789ab` (database last updated 2026-11-18T10:14:42+01:00, 1533 advisories loaded).
+
+- Vulnerabilities: 0. No advisory matched any crate in `Cargo.lock`.
+- Warnings: 0. No unmaintained, unsound or yanked crate was reported.
+- Scanned: 261 crate dependencies from `Cargo.lock`.
+
+No dependency version was changed as a result. The command was `cargo audit` in the repository root and it exited 0. The same command runs in the audit job of `.github/workflows/ci.yml`.
