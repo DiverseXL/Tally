@@ -13,6 +13,8 @@ publish = false
 nwc = "=0.45.2"
 nostr = "=0.45.7"
 lightning-invoice = "=0.34.2"
+# Already in Cargo.lock through lightning-invoice; only the tests sign invoices.
+bitcoin = "=0.32.102"
 libmacaroon = "=0.4.0"
 axum = "=0.8.9"
 clap = "=4.6.7"

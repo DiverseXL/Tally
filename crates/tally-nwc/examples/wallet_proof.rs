@@ -1,45 +1,50 @@
-//! Runnable proof that two NWC wallets can issue, pay and settle one invoice.
+//! Live proof of the wallet adapter: two NWC wallets, one invoice, one payment.
 //!
 //! Reads `.env.payer` and `.env.receiver`, prints only scrubbed output, and pays
-//! only when started with `--approve-payment-sats <sats>`.
+//! only when started with `--approve-payment-sats 21` and only through a
+//! [`PaymentPermit`]. A payment is never retried.
 //!
 //! Every printed line goes through the [`Scrubber`], which holds both connection
-//! strings and both embedded secret keys.
+//! strings, both embedded secret keys and the issued invoice.
 
 use std::env;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::str::FromStr;
-use std::time::Duration;
+use std::time::Instant;
 
-use lightning_invoice::Bolt11Invoice;
-use nostr::nips::nip47::{
-    ListTransactionsRequest, LookupInvoiceRequest, MakeInvoiceRequest, Nip47Tag,
-    NostrWalletConnectUri, PayInvoiceRequest,
-};
-use nostr::prelude::{Event, Filter, Kind};
-use nwc::NostrWalletConnect;
 use secrecy::{ExposeSecret, SecretString};
-use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
+
+use tally_core::capabilities::{
+    Advertisement, Capabilities, CapabilitySource, InfoEventCapabilities,
+};
+use tally_core::outcome::{Observation, classify_wallet_outcome};
 use tally_core::redact::Scrubber;
+use tally_core::report::{
+    EndpointClass, EnvClass, Environment, InvoiceEvidence, NwcClientIdentity, PaymentEvidence,
+    PaymentOutcome, RoleCapabilities, RunReport, SCHEMA_VERSION, TestResult, WalletRole,
+    WalletSummary, WorkflowEvidence, exit_code,
+};
+use tally_core::status::Status;
+use tally_core::{new_run_id, now_rfc3339};
 use tally_nwc::connection::read_secret_line;
-use tally_nwc::guard::{self, GuardError, MSAT_PER_SAT};
-use zeroize::Zeroize;
+use tally_nwc::session::NWC_CLIENT_VERSION;
+use tally_nwc::{
+    ConnectReport, InfoEventRecord, NwcError, PaymentPermit, SessionOptions, WalletInfo,
+    WalletSession,
+};
 
-/// Upper bound for any single network operation.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-/// Upper bound for fetching the wallet info event.
-const INFO_EVENT_TIMEOUT: Duration = Duration::from_secs(20);
-/// How long to wait for relay connections.
-const CONNECT_WAIT: Duration = Duration::from_secs(15);
+/// Amount the proof moves, in millisatoshis.
+const PAYMENT_MSAT: u64 = 21_000;
 /// Seconds the receiver invoice stays valid.
-const INVOICE_EXPIRY_SECS: u64 = 120;
-/// Methods that cannot spend money, used for the unsupported-method probe.
-const PROBE_CANDIDATES: [&str; 3] = ["sign_message", "list_transactions", "get_budget"];
+const INVOICE_EXPIRY_SECS: u64 = 300;
+/// The limitation recorded in every report of this run.
+const LIMITATION: &str = "Sandbox wallets from the NWC faucet: balances are play money on a single Alby Hub with no Lightning channels; payments use the real NWC protocol and return a real preimage but are not routed across the real Lightning network.";
+/// Output file of the report.
+const REPORT_PATH: &str = "reports/report.json";
 
-/// Console output that scrubs every line and remembers whether a secret slipped
-/// through before scrubbing.
+/// Console output that scrubs every line and remembers whether a secret would
+/// have been printed.
 struct Output {
     scrubber: Scrubber,
     leaked: bool,
@@ -53,6 +58,10 @@ impl Output {
         }
     }
 
+    fn add_secret(&mut self, secret: SecretString) {
+        self.scrubber.add(secret);
+    }
+
     fn line(&mut self, text: impl AsRef<str>) {
         let text = text.as_ref();
         if self.scrubber.contains_secret(text) {
@@ -62,31 +71,12 @@ impl Output {
     }
 }
 
-/// One connected wallet.
-struct Wallet {
-    label: &'static str,
-    client: NostrWalletConnect,
-    uri: NostrWalletConnectUri,
-}
-
-/// Advertised methods of a wallet and where the list came from.
-struct Capabilities {
-    source: &'static str,
-    methods: Vec<String>,
-}
-
-impl Capabilities {
-    fn advertises(&self, method: &str) -> bool {
-        self.methods.iter().any(|advertised| advertised == method)
-    }
-}
-
 fn main() -> ExitCode {
     let approved_sats = match approved_sats_from_args() {
         Ok(approved) => approved,
         Err(message) => {
             println!("argument_error={message}");
-            return ExitCode::FAILURE;
+            return ExitCode::from(2);
         }
     };
 
@@ -97,7 +87,7 @@ fn main() -> ExitCode {
         Ok(runtime) => runtime,
         Err(error) => {
             println!("runtime_error={}", error.kind());
-            return ExitCode::FAILURE;
+            return ExitCode::from(2);
         }
     };
 
@@ -120,511 +110,907 @@ fn approved_sats_from_args() -> Result<Option<u64>, &'static str> {
     Ok(None)
 }
 
+/// Everything collected from one wallet.
+struct WalletState {
+    label: &'static str,
+    session: WalletSession,
+    connect_error: Option<NwcError>,
+    relays_connected: usize,
+    info: Option<InfoEventRecord>,
+    details: Option<WalletInfo>,
+    capabilities: Capabilities,
+    balance_before_msat: Option<u64>,
+    balance_after_msat: Option<u64>,
+}
+
+impl WalletState {
+    fn effective_source(&self) -> CapabilitySource {
+        self.capabilities.effective().source
+    }
+}
+
+/// The outcome of the payment step.
+struct PaymentStep {
+    status: Status,
+    actual: String,
+    diagnostics: Vec<String>,
+    evidence: PaymentEvidence,
+}
+
+impl PaymentStep {
+    fn not_attempted(status: Status, actual: String, reason: &str) -> Self {
+        Self {
+            status,
+            actual,
+            diagnostics: vec![format!("reason={reason}")],
+            evidence: PaymentEvidence {
+                outcome: PaymentOutcome::NotAttempted,
+                fees_paid_msat: None,
+                preimage_present: false,
+                preimage_matches_payment_hash: None,
+            },
+        }
+    }
+}
+
 async fn run(approved_sats: Option<u64>) -> ExitCode {
+    let started_at = now_rfc3339();
+    let started = Instant::now();
+
     let mut scrubber = Scrubber::new();
 
-    let mut payer_text = match read_connection(Path::new(".env.payer"), "TALLY_PAYER_NWC_URI") {
-        Ok(value) => value,
-        Err(kind) => {
-            println!("env_payer_error={kind}");
-            return ExitCode::FAILURE;
+    let payer_secret = match read_secret_line(Path::new(".env.payer"), "TALLY_PAYER_NWC_URI") {
+        Ok(secret) => secret,
+        Err(error) => {
+            println!("env_payer_error={error}");
+            return ExitCode::from(2);
         }
     };
-    let mut receiver_text =
-        match read_connection(Path::new(".env.receiver"), "TALLY_RECEIVER_NWC_URI") {
-            Ok(value) => value,
-            Err(kind) => {
-                payer_text.zeroize();
-                println!("env_receiver_error={kind}");
-                return ExitCode::FAILURE;
+    scrubber.add(payer_secret.clone());
+    add_secret_component(&mut scrubber, &payer_secret);
+
+    let receiver_secret =
+        match read_secret_line(Path::new(".env.receiver"), "TALLY_RECEIVER_NWC_URI") {
+            Ok(secret) => secret,
+            Err(error) => {
+                println!("env_receiver_error={error}");
+                return ExitCode::from(2);
             }
         };
-
-    scrubber.add(SecretString::from(payer_text.clone()));
-    scrubber.add(SecretString::from(receiver_text.clone()));
+    scrubber.add(receiver_secret.clone());
+    add_secret_component(&mut scrubber, &receiver_secret);
 
     let mut out = Output::new(scrubber);
+
+    let payer_session = WalletSession::with_options(&payer_secret, SessionOptions::default());
+    let receiver_session = WalletSession::with_options(&receiver_secret, SessionOptions::default());
+    drop(payer_secret);
+    drop(receiver_secret);
+
+    let (payer_session, receiver_session) = match (payer_session, receiver_session) {
+        (Ok(payer), Ok(receiver)) => (payer, receiver),
+        (Err(error), _) | (_, Err(error)) => {
+            out.line(format!(
+                "connection_error kind={} detail={}",
+                error.kind(),
+                error.detail()
+            ));
+            return ExitCode::from(2);
+        }
+    };
+
     match approved_sats {
         Some(sats) => out.line(format!("mode=approved approved_sats={sats}")),
         None => out.line("mode=read_only"),
     }
 
-    let payer_uri = match NostrWalletConnectUri::parse(payer_text.as_str()) {
-        Ok(uri) => uri,
-        Err(error) => {
-            payer_text.zeroize();
-            receiver_text.zeroize();
-            out.line(format!("payer_uri_parse_error kind={}", error.kind()));
-            return ExitCode::FAILURE;
-        }
-    };
-    let receiver_uri = match NostrWalletConnectUri::parse(receiver_text.as_str()) {
-        Ok(uri) => uri,
-        Err(error) => {
-            payer_text.zeroize();
-            receiver_text.zeroize();
-            out.line(format!("receiver_uri_parse_error kind={}", error.kind()));
-            return ExitCode::FAILURE;
-        }
-    };
-
-    out.scrubber
-        .add(SecretString::from(payer_uri.secret.to_secret_hex()));
-    out.scrubber
-        .add(SecretString::from(receiver_uri.secret.to_secret_hex()));
-
-    out.line(format!(
-        "wallets payer_pubkey={} receiver_pubkey={} payer_relays={} receiver_relays={}",
-        payer_uri.public_key,
-        receiver_uri.public_key,
-        payer_uri.relays.len(),
-        receiver_uri.relays.len()
-    ));
-
-    payer_text.zeroize();
-    receiver_text.zeroize();
-
-    let payer = Wallet {
+    let mut payer = WalletState {
         label: "payer",
-        client: NostrWalletConnect::builder(payer_uri.clone())
-            .timeout(REQUEST_TIMEOUT)
-            .build(),
-        uri: payer_uri,
+        session: payer_session,
+        connect_error: None,
+        relays_connected: 0,
+        info: None,
+        details: None,
+        capabilities: empty_capabilities(),
+        balance_before_msat: None,
+        balance_after_msat: None,
     };
-    let receiver = Wallet {
+    let mut receiver = WalletState {
         label: "receiver",
-        client: NostrWalletConnect::builder(receiver_uri.clone())
-            .timeout(REQUEST_TIMEOUT)
-            .build(),
-        uri: receiver_uri,
+        session: receiver_session,
+        connect_error: None,
+        relays_connected: 0,
+        info: None,
+        details: None,
+        capabilities: empty_capabilities(),
+        balance_before_msat: None,
+        balance_after_msat: None,
     };
 
-    connect(&payer, &mut out).await;
-    connect(&receiver, &mut out).await;
-
-    let payer_caps = capabilities(&payer, &mut out).await;
-    let receiver_caps = capabilities(&receiver, &mut out).await;
-
-    let payer_before = balance_sats(&payer, &mut out).await;
-    let receiver_before = balance_sats(&receiver, &mut out).await;
-
-    // Receiver issues the invoice.
-    let request = MakeInvoiceRequest {
-        amount: 21 * MSAT_PER_SAT,
-        description: Some(String::from("Tally step 4 wallet proof")),
-        description_hash: None,
-        expiry: Some(INVOICE_EXPIRY_SECS),
-    };
-    let invoice_response = match receiver
-        .client
-        .make_invoice(request)
-        .timeout(REQUEST_TIMEOUT)
-        .await
-    {
-        Ok(response) => response,
-        Err(error) => {
-            out.line(format!("make_invoice=failed kind={}", error.kind()));
-            out.line(format!("make_invoice_message={error}"));
-            finish(&mut out);
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let invoice = match Bolt11Invoice::from_str(&invoice_response.invoice) {
-        Ok(invoice) => invoice,
-        Err(_) => {
-            out.line("invoice_parse=failed");
-            finish(&mut out);
-            return ExitCode::FAILURE;
-        }
-    };
-
-    let amount_msat = invoice.amount_milli_satoshis().unwrap_or(0);
-    let payment_hash_hex = invoice.payment_hash().to_string();
-    let seconds_until_expiry = invoice.duration_until_expiry().as_secs();
-
-    out.line(format!("invoice_amount_msat={amount_msat}"));
-    out.line(format!("invoice_network={:?}", invoice.network()));
-    out.line(format!("invoice_payment_hash={payment_hash_hex}"));
     out.line(format!(
-        "invoice_seconds_until_expiry={seconds_until_expiry}"
-    ));
-    out.line(format!("invoice_expired={}", invoice.is_expired()));
-
-    match invoice_response.payment_hash.as_deref() {
-        Some(wallet_hash) => out.line(format!(
-            "make_invoice_payment_hash_matches={}",
-            wallet_hash.eq_ignore_ascii_case(&payment_hash_hex)
-        )),
-        None => out.line("make_invoice_payment_hash=absent"),
-    }
-
-    // Guard, then pay at most once.
-    match guard::check_payment(approved_sats, amount_msat, invoice.is_expired()) {
-        Ok(sats) => out.line(format!("guard=accepted approved_sats={sats}")),
-        Err(error) => out.line(format!("guard=refused reason={}", guard_reason(&error))),
-    }
-
-    let mut paid = false;
-    match approved_sats
-        .filter(|_| guard::check_payment(approved_sats, amount_msat, invoice.is_expired()).is_ok())
-    {
-        None => out.line("pay_invoice=not_called"),
-        Some(_) => {
-            let request = PayInvoiceRequest::new(invoice_response.invoice.clone());
-            match payer
-                .client
-                .pay_invoice(request)
-                .timeout(Duration::from_secs(30))
-                .await
-            {
-                Ok(response) => {
-                    paid = true;
-                    out.line(format!(
-                        "pay_invoice=ok fees_paid_msat={:?}",
-                        response.fees_paid
-                    ));
-                    out.line(format!(
-                        "preimage_present={}",
-                        !response.preimage.is_empty()
-                    ));
-                    match (hex_to_32(&response.preimage), hex_to_32(&payment_hash_hex)) {
-                        (Some(preimage_bytes), Some(expected_hash)) => {
-                            let digest = Sha256::digest(preimage_bytes);
-                            let digest_bytes: &[u8] = digest.as_ref();
-                            let matches: bool = digest_bytes.ct_eq(expected_hash.as_slice()).into();
-                            out.line(format!("preimage_matches_payment_hash={matches}"));
-                        }
-                        _ => out.line("preimage_matches_payment_hash=false"),
-                    }
-                }
-                Err(error) => {
-                    out.line(format!("pay_invoice=failed kind={}", error.kind()));
-                    out.line(format!("pay_invoice_message={error}"));
-                    out.line("AMBIGUOUS_PAYMENT_NOT_RETRIED");
-                }
-            }
-        }
-    }
-
-    // Balances afterwards.
-    let payer_after = balance_sats(&payer, &mut out).await;
-    let receiver_after = balance_sats(&receiver, &mut out).await;
-    out.line(format!(
-        "payer_balance_delta_sats={}",
-        delta(payer_before, payer_after)
-    ));
-    out.line(format!(
-        "receiver_balance_delta_sats={}",
-        delta(receiver_before, receiver_after)
+        "wallets payer_pubkey={} receiver_pubkey={} payer_relay_hosts=[{}] receiver_relay_hosts=[{}]",
+        payer.session.service_pubkey_hex(),
+        receiver.session.service_pubkey_hex(),
+        payer.session.relay_hosts().join(","),
+        receiver.session.relay_hosts().join(",")
     ));
 
-    // Receiver-side settlement check.
-    if receiver_caps.advertises("lookup_invoice") {
-        let request = LookupInvoiceRequest {
-            payment_hash: Some(payment_hash_hex.clone()),
-            invoice: None,
-        };
-        match receiver
-            .client
-            .lookup_invoice(request)
-            .timeout(REQUEST_TIMEOUT)
-            .await
-        {
-            Ok(response) => {
-                out.line(format!(
-                    "lookup_invoice[source={}] state={:?} amount_msat={} settled_at_present={}",
-                    receiver_caps.source,
-                    response.state,
-                    response.amount,
-                    response.settled_at.is_some()
-                ));
-            }
-            Err(error) => out.line(format!(
-                "lookup_invoice=failed kind={} message={error}",
-                error.kind()
-            )),
-        }
-    } else {
-        out.line(format!(
-            "lookup_invoice=UNSUPPORTED [source={}]",
-            receiver_caps.source
-        ));
-    }
+    // Connect both wallets concurrently.
+    let (payer_connect, receiver_connect) =
+        tokio::join!(payer.session.connect(), receiver.session.connect());
+    apply_connect(&mut payer, payer_connect, &mut out);
+    apply_connect(&mut receiver, receiver_connect, &mut out);
 
-    // Probe one method the payer does not advertise.
-    probe_unsupported_method(&payer, &payer_caps, &mut out).await;
+    // Raw info events, concurrently.
+    let (payer_info, receiver_info) = tokio::join!(
+        payer.session.fetch_info_event(),
+        receiver.session.fetch_info_event()
+    );
+    apply_info(&mut payer, payer_info, &mut out);
+    apply_info(&mut receiver, receiver_info, &mut out);
 
-    if paid {
-        finish(&mut out);
-        ExitCode::SUCCESS
-    } else {
-        let read_only = approved_sats.is_none();
-        finish(&mut out);
-        if read_only {
-            ExitCode::SUCCESS
-        } else {
-            ExitCode::FAILURE
-        }
-    }
-}
+    // get_info, concurrently.
+    let (payer_details, receiver_details) =
+        tokio::join!(payer.session.get_info(), receiver.session.get_info());
+    apply_details(&mut payer, payer_details, &mut out);
+    apply_details(&mut receiver, receiver_details, &mut out);
 
-fn read_connection(path: &Path, key: &str) -> Result<String, String> {
-    read_secret_line(path, key)
-        .map(|secret| secret.expose_secret().to_owned())
-        .map_err(|error| error.to_string())
-}
+    // Balances before, concurrently.
+    let (payer_before, receiver_before) =
+        tokio::join!(payer.session.get_balance(), receiver.session.get_balance());
+    payer.balance_before_msat = apply_balance(&mut payer, payer_before, &mut out);
+    receiver.balance_before_msat = apply_balance(&mut receiver, receiver_before, &mut out);
 
-fn guard_reason(error: &GuardError) -> String {
-    match error {
-        GuardError::NoExplicitApproval => String::from("NoExplicitApproval"),
-        GuardError::AmountMismatch {
-            approved_sats,
-            invoice_sats,
-        } => format!("AmountMismatch(approved={approved_sats},invoice={invoice_sats})"),
-        GuardError::InvoiceExpired => String::from("InvoiceExpired"),
-    }
-}
-
-fn delta(before: Option<u64>, after: Option<u64>) -> String {
-    match (before, after) {
-        (Some(before), Some(after)) => (after as i64 - before as i64).to_string(),
-        _ => String::from("unknown"),
-    }
-}
-
-fn finish(out: &mut Output) {
-    let leaked = out.leaked;
-    out.line(format!("output_contains_secret={leaked}"));
-}
-
-async fn connect(wallet: &Wallet, out: &mut Output) {
-    for relay in wallet.uri.relays.iter() {
-        match wallet.client.client().add_relay(relay.clone()).await {
-            Ok(added) => out.line(format!("[{}] relay_added={added}", wallet.label)),
-            Err(error) => out.line(format!(
-                "[{}] relay_add_failed kind={}",
-                wallet.label,
-                error.kind()
-            )),
-        }
-    }
-
-    wallet
-        .client
-        .client()
-        .connect()
-        .and_wait(CONNECT_WAIT)
+    // The receiver issues the invoice.
+    let make_invoice = receiver
+        .session
+        .make_invoice(
+            PAYMENT_MSAT,
+            "Tally step 5 wallet proof",
+            INVOICE_EXPIRY_SECS,
+        )
         .await;
 
-    let relays = wallet.client.client().relays().await;
-    out.line(format!(
-        "[{}] connect relays={}",
-        wallet.label,
-        relays.len()
-    ));
-}
+    let mut invoice_evidence: Option<InvoiceEvidence> = None;
+    let mut invoice_secret: Option<SecretString> = None;
+    let mut payment_hash_hex: Option<String> = None;
+    let mut make_invoice_diagnostics: Vec<String> = Vec::new();
+    let mut make_invoice_ok = false;
 
-async fn balance_sats(wallet: &Wallet, out: &mut Output) -> Option<u64> {
-    match wallet.client.get_balance().timeout(REQUEST_TIMEOUT).await {
-        Ok(response) => {
-            let sats = response.balance / MSAT_PER_SAT;
+    match make_invoice {
+        Ok(made) => {
+            let network = made.network();
+            let amount_msat = made.amount_msat();
+            let seconds_until_expiry = made.seconds_until_expiry();
+            let hash = made.payment_hash_hex().map(str::to_owned);
+            let wallet_hash_matches = made.wallet_hash_matches();
+
             out.line(format!(
-                "[{}] get_balance balance_msat={} balance_sats={sats}",
-                wallet.label, response.balance
+                "[receiver] make_invoice amount_msat={amount_msat} network={network} seconds_until_expiry={seconds_until_expiry} invoice_expiry_requested_s={INVOICE_EXPIRY_SECS}"
             ));
-            Some(sats)
+            match &hash {
+                Some(hash) => out.line(format!("[receiver] make_invoice payment_hash={hash}")),
+                None => out.line("[receiver] make_invoice payment_hash=absent"),
+            }
+            match wallet_hash_matches {
+                Some(matches) => out.line(format!(
+                    "[receiver] make_invoice_payment_hash_matches={matches}"
+                )),
+                None => out.line("[receiver] make_invoice_payment_hash=absent"),
+            }
+
+            let invoice = made.into_invoice();
+            // The invoice is a secret from here on: scrub it everywhere.
+            out.add_secret(invoice.clone());
+
+            make_invoice_ok = amount_msat == PAYMENT_MSAT && hash.is_some();
+            make_invoice_diagnostics.push(format!("amount_msat={amount_msat}"));
+            make_invoice_diagnostics.push(format!("network={network}"));
+            if !make_invoice_ok {
+                make_invoice_diagnostics.push(String::from("amount_or_hash_unexpected"));
+            }
+
+            invoice_evidence = Some(InvoiceEvidence {
+                network: Some(network.to_owned()),
+                amount_msat,
+                payment_hash: hash.clone(),
+                seconds_until_expiry,
+            });
+            payment_hash_hex = hash;
+            invoice_secret = Some(invoice);
         }
         Err(error) => {
             out.line(format!(
-                "[{}] get_balance=failed kind={}",
-                wallet.label,
-                error.kind()
+                "[receiver] make_invoice=failed kind={} detail={} status={}",
+                error.kind(),
+                error.detail(),
+                error.classify().status()
             ));
-            None
+            make_invoice_diagnostics.push(format!("error_kind={}", error.kind()));
         }
     }
+
+    let payment = run_payment(
+        &mut payer,
+        &mut receiver,
+        approved_sats,
+        invoice_secret.as_ref(),
+        &mut out,
+    )
+    .await;
+
+    // Receiver-side settlement check.
+    let (lookup_status, lookup_actual, lookup_diagnostics) = lookup(
+        &receiver,
+        payment_hash_hex.as_deref(),
+        approved_sats.is_some(),
+        &mut out,
+    )
+    .await;
+
+    let sign_message = sign_message_test(&payer, &mut out);
+
+    let tests = vec![
+        connect_test(&payer, &receiver),
+        info_event_test(&payer, &receiver),
+        get_info_test(&payer, &receiver),
+        get_balance_test(&payer, &receiver),
+        make_invoice_test(make_invoice_ok, make_invoice_diagnostics),
+        TestResult::new("pay_invoice", "pay_invoice", payment.status, true)
+            .with_required_capability("pay_invoice")
+            .with_detail("one payment with a matching preimage", payment.actual)
+            .with_diagnostics(payment.diagnostics),
+        TestResult::new("lookup_invoice", "lookup_invoice", lookup_status, true)
+            .with_required_capability("lookup_invoice")
+            .with_detail(
+                if approved_sats.is_some() {
+                    "invoice found and settled"
+                } else {
+                    "invoice found as pending"
+                },
+                lookup_actual,
+            )
+            .with_diagnostics(lookup_diagnostics),
+        sign_message,
+    ];
+
+    let report = RunReport {
+        schema_version: SCHEMA_VERSION,
+        run_id: new_run_id(),
+        started_at,
+        finished_at: now_rfc3339(),
+        duration_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        tally_version: String::from(env!("CARGO_PKG_VERSION")),
+        environment: Environment {
+            class: EnvClass::Sandbox,
+            endpoint_class: EndpointClass::ExternalSandbox,
+            nwc_client: NwcClientIdentity::new("nwc", NWC_CLIENT_VERSION),
+            encryption_mode_selected: None,
+            network_reported: receiver
+                .details
+                .as_ref()
+                .and_then(|details| details.network.clone()),
+        },
+        wallets: vec![
+            WalletSummary {
+                role: WalletRole::Payer,
+                service_pubkey: payer.session.service_pubkey_hex(),
+            },
+            WalletSummary {
+                role: WalletRole::Receiver,
+                service_pubkey: receiver.session.service_pubkey_hex(),
+            },
+        ],
+        capabilities: vec![
+            RoleCapabilities::from_capabilities(WalletRole::Payer, &payer.capabilities),
+            RoleCapabilities::from_capabilities(WalletRole::Receiver, &receiver.capabilities),
+        ],
+        tests,
+        workflow_evidence: WorkflowEvidence {
+            invoice: invoice_evidence,
+            payment: Some(payment.evidence),
+            protected_resource: None,
+        },
+        limitations: vec![String::from(LIMITATION)],
+    };
+
+    out.line(format!("tests_total={}", report.tests.len()));
+
+    emit(&report, &mut out)
 }
 
-async fn capabilities(wallet: &Wallet, out: &mut Output) -> Capabilities {
-    let filter = Filter::new()
-        .kind(Kind::WalletConnectInfo)
-        .author(wallet.uri.public_key)
-        .limit(1);
+/// Runs the payment step according to the capability policy and the approval.
+async fn run_payment(
+    payer: &mut WalletState,
+    receiver: &mut WalletState,
+    approved_sats: Option<u64>,
+    invoice: Option<&SecretString>,
+    out: &mut Output,
+) -> PaymentStep {
+    let Some(sats) = approved_sats else {
+        out.line("[payer] pay_invoice=not_called read_only=true");
+        let classified = classify_wallet_outcome(Observation::NotSelected);
+        return PaymentStep::not_attempted(
+            classified.status(),
+            String::from("no payment attempted: read-only run"),
+            classified.reason_code(),
+        );
+    };
 
-    let event = match wallet
-        .client
-        .client()
-        .fetch_events(filter)
-        .timeout(INFO_EVENT_TIMEOUT)
-        .max_events(1)
-        .await
-    {
-        Ok(events) => events.into_iter().next(),
+    let advertised = payer.capabilities.advertises("pay_invoice");
+    if !advertised.is_yes() {
+        let classified = classify_wallet_outcome(Observation::MethodNotAdvertised);
+        out.line(format!(
+            "[payer] pay_invoice=UNSUPPORTED advertised=false no_request_sent=true source={}",
+            advertised.source().map_or("none", CapabilitySource::as_str)
+        ));
+        return PaymentStep::not_attempted(
+            classified.status(),
+            String::from("pay_invoice not advertised, so no request was sent"),
+            classified.reason_code(),
+        );
+    }
+
+    let Some(invoice) = invoice else {
+        out.line("[payer] pay_invoice=not_called no_invoice=true");
+        return PaymentStep::not_attempted(
+            Status::Fail,
+            String::from("no invoice to pay"),
+            "NO_INVOICE",
+        );
+    };
+
+    let permit = match PaymentPermit::issue(invoice, Some(sats), EnvClass::Sandbox, None) {
+        Ok(permit) => permit,
         Err(error) => {
+            let classified = error.classify();
             out.line(format!(
-                "[{}] info_event=fetch_failed kind={} within={}s",
+                "[payer] permit=refused kind={} detail={} status={} reason={}",
+                error.kind(),
+                error.detail(),
+                classified.status(),
+                classified.reason_code()
+            ));
+            return PaymentStep::not_attempted(
+                classified.status(),
+                format!("permit refused: {}", error.detail()),
+                classified.reason_code(),
+            );
+        }
+    };
+
+    out.line(format!(
+        "[payer] permit=issued amount_msat={} env=sandbox",
+        permit.amount_msat()
+    ));
+    let permit_hash = permit.payment_hash_hex().to_owned();
+
+    // Exactly one attempt; there is deliberately no retry path.
+    let step = match payer.session.pay_invoice(permit).await {
+        Ok(paid) => {
+            let fees = paid.fees_paid_msat();
+            let preimage_present = paid.preimage_present();
+            let matches = paid.preimage_matches(&permit_hash);
+
+            out.line(format!(
+                "[payer] pay_invoice=ok fees_paid_msat={fees:?} preimage_present={preimage_present} preimage_matches_payment_hash={matches}"
+            ));
+
+            let classified = classify_wallet_outcome(if preimage_present && matches {
+                Observation::ExpectedBehaviourObserved
+            } else {
+                Observation::ExpectedBehaviourNotObserved
+            });
+
+            PaymentStep {
+                status: classified.status(),
+                actual: format!(
+                    "preimage_present={preimage_present} preimage_matches_payment_hash={matches}"
+                ),
+                diagnostics: vec![
+                    format!("fees_paid_msat={fees:?}"),
+                    format!("reason={}", classified.reason_code()),
+                ],
+                evidence: PaymentEvidence {
+                    outcome: PaymentOutcome::Paid,
+                    fees_paid_msat: fees,
+                    preimage_present,
+                    preimage_matches_payment_hash: Some(matches),
+                },
+            }
+        }
+        Err(error) => {
+            let classified = error.classify();
+            out.line(format!(
+                "[payer] pay_invoice=failed kind={} detail={} status={} reason={}",
+                error.kind(),
+                error.detail(),
+                classified.status(),
+                classified.reason_code()
+            ));
+            if classified.reason_code() == "AMBIGUOUS_PAYMENT_NOT_RETRIED" {
+                out.line("[payer] AMBIGUOUS_PAYMENT_NOT_RETRIED");
+            }
+
+            PaymentStep {
+                status: classified.status(),
+                actual: format!("pay_invoice failed: {}", error.detail()),
+                diagnostics: vec![
+                    format!("error_kind={}", error.kind()),
+                    format!("reason={}", classified.reason_code()),
+                ],
+                evidence: PaymentEvidence {
+                    outcome: if classified.reason_code() == "AMBIGUOUS_PAYMENT_NOT_RETRIED" {
+                        PaymentOutcome::Ambiguous
+                    } else {
+                        PaymentOutcome::Failed
+                    },
+                    fees_paid_msat: None,
+                    preimage_present: false,
+                    preimage_matches_payment_hash: None,
+                },
+            }
+        }
+    };
+
+    let (payer_after, receiver_after) =
+        tokio::join!(payer.session.get_balance(), receiver.session.get_balance());
+    payer.balance_after_msat = apply_balance(payer, payer_after, out);
+    receiver.balance_after_msat = apply_balance(receiver, receiver_after, out);
+
+    match (
+        payer.balance_before_msat,
+        payer.balance_after_msat,
+        receiver.balance_before_msat,
+        receiver.balance_after_msat,
+    ) {
+        (Some(payer_before), Some(payer_after), Some(receiver_before), Some(receiver_after)) => {
+            out.line(format!(
+                "balance_delta_msat payer={} receiver={}",
+                delta(payer_before, payer_after),
+                delta(receiver_before, receiver_after)
+            ));
+        }
+        _ => out.line("balance_delta_msat=unknown"),
+    }
+
+    step
+}
+
+/// Emits the report, the exit code and the leak line, then returns the code.
+fn emit(report: &RunReport, out: &mut Output) -> ExitCode {
+    let pretty = match serde_json::to_string_pretty(report) {
+        Ok(pretty) => pretty,
+        Err(error) => {
+            out.line(format!("report_serialize_error={error}"));
+            return ExitCode::from(2);
+        }
+    };
+
+    out.line("report_json_begin");
+    out.line(&pretty);
+    out.line("report_json_end");
+
+    match write_report(&pretty) {
+        Ok(path) => out.line(format!("report_written={path}")),
+        Err(kind) => out.line(format!("report_write_failed kind={kind}")),
+    }
+
+    let code = exit_code(report);
+    out.line(format!("exit_code={code}"));
+
+    let leaked = out.leaked;
+    out.line(format!("output_contains_secret={leaked}"));
+
+    ExitCode::from(u8::try_from(code).unwrap_or(2))
+}
+
+fn write_report(pretty: &str) -> std::io::Result<String> {
+    let path = PathBuf::from(REPORT_PATH);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, pretty)?;
+    Ok(path.display().to_string())
+}
+
+fn empty_capabilities() -> Capabilities {
+    Capabilities::new(InfoEventCapabilities::missing(), None)
+}
+
+fn apply_connect(
+    wallet: &mut WalletState,
+    result: Result<ConnectReport, NwcError>,
+    out: &mut Output,
+) {
+    match result {
+        Ok(report) => {
+            wallet.relays_connected = report.relays_connected;
+            out.line(format!(
+                "[{}] connect relays_requested={} relays_connected={}",
+                wallet.label, report.relays_requested, report.relays_connected
+            ));
+        }
+        Err(error) => {
+            wallet.connect_error = Some(error);
+            out.line(format!(
+                "[{}] connect=failed kind={} detail={} status={}",
                 wallet.label,
                 error.kind(),
-                INFO_EVENT_TIMEOUT.as_secs()
+                error.detail(),
+                error.classify().status()
             ));
-            None
         }
-    };
+    }
+}
 
-    let info_event_caps = event.as_ref().and_then(|event| {
-        let content: serde_json::Value =
-            serde_json::from_str(&event.content).unwrap_or(serde_json::Value::Null);
-        let methods = string_array(content.get("methods"));
-        let notifications = string_array(content.get("notifications"));
-        let keys = content
-            .as_object()
-            .map(|object| object.keys().cloned().collect::<Vec<String>>())
-            .unwrap_or_default();
-        out.line(format!(
-            "[{}] info_event found=true content_keys=[{}] methods_count={} encryption=[{}] [source=info_event]",
-            wallet.label,
-            keys.join(","),
-            methods.len(),
-            encryption_tags(event).join(",")
-        ));
-        if methods.is_empty() {
+fn apply_info(
+    wallet: &mut WalletState,
+    result: Result<Option<InfoEventRecord>, NwcError>,
+    out: &mut Output,
+) {
+    match result {
+        Ok(Some(info)) => {
             out.line(format!(
-                "[{}] info_event advertises no methods, falling_back=true",
+                "[{}] info_event found=true id={} created_at={} content_len={} content={}",
+                wallet.label,
+                info.id,
+                info.created_at,
+                info.raw_content.len(),
+                info.raw_content
+            ));
+            for (index, tag) in info.tags.iter().enumerate() {
+                let name = tag.first().map_or("", String::as_str);
+                let values = tag
+                    .iter()
+                    .skip(1)
+                    .cloned()
+                    .collect::<Vec<String>>()
+                    .join(",");
+                out.line(format!(
+                    "[{}] info_event_tag[{index}] name={name} values=[{values}]",
+                    wallet.label
+                ));
+            }
+            out.line(format!(
+                "[{}] info_event_content_kind={}",
+                wallet.label,
+                info.content_kind.as_str()
+            ));
+            out.line(format!(
+                "[{}] info_event methods=[{}] encryption=[{}] extensions=[{}]",
+                wallet.label,
+                info.methods.join(","),
+                info.encryption_tokens.join(","),
+                info.extensions.join(",")
+            ));
+
+            wallet.capabilities = Capabilities::new(info.capabilities(), None);
+            wallet.info = Some(info);
+        }
+        Ok(None) => {
+            out.line(format!(
+                "[{}] info_event found=false (no kind 13194 event from this wallet)",
                 wallet.label
             ));
-            None
-        } else {
-            out.line(format!(
-                "[{}] capabilities methods=[{}] notifications=[{}] encryption=[{}] [source=info_event]",
-                wallet.label,
-                methods.join(","),
-                notifications.join(","),
-                encryption_tags(event).join(",")
-            ));
-            Some(methods)
-        }
-    });
-
-    // get_info is always called and always labelled with its own source.
-    let info_methods = match wallet.client.get_info().timeout(REQUEST_TIMEOUT).await {
-        Ok(info) => {
-            let methods: Vec<String> = info
-                .methods
-                .iter()
-                .map(|method| method.as_str().to_owned())
-                .collect();
-            match info_event_caps {
-                Some(_) => out.line(format!(
-                    "[{}] get_info alias={:?} network={:?} block_height={:?} methods_count={} [source=get_info]",
-                    wallet.label,
-                    info.alias,
-                    info.network,
-                    info.block_height,
-                    methods.len()
-                )),
-                None => out.line(format!(
-                    "[{}] capabilities methods=[{}] notifications=[{}] [source=get_info]",
-                    wallet.label,
-                    methods.join(","),
-                    info.notifications.join(",")
-                )),
-            }
-            methods
         }
         Err(error) => {
             out.line(format!(
-                "[{}] get_info=failed kind={}",
+                "[{}] info_event=fetch_failed kind={} detail={} status={}",
                 wallet.label,
-                error.kind()
+                error.kind(),
+                error.detail(),
+                error.classify().status()
             ));
-            Vec::new()
         }
+    }
+}
+
+fn apply_details(wallet: &mut WalletState, result: Result<WalletInfo, NwcError>, out: &mut Output) {
+    match result {
+        Ok(details) => {
+            out.line(format!(
+                "[{}] get_info alias={:?} network={:?} methods_count={} notifications_count={} extensions_count={} block_height={:?}",
+                wallet.label,
+                details.alias,
+                details.network,
+                details.methods.len(),
+                details.notifications.len(),
+                details.extensions.len(),
+                details.block_height
+            ));
+            out.line(format!(
+                "[{}] get_info methods=[{}]",
+                wallet.label,
+                details.methods.join(",")
+            ));
+
+            let get_info_caps = details.capabilities();
+            wallet.capabilities =
+                Capabilities::new(wallet.capabilities.info_event.clone(), Some(get_info_caps));
+            wallet.details = Some(details);
+        }
+        Err(error) => {
+            out.line(format!(
+                "[{}] get_info=failed kind={} detail={} status={}",
+                wallet.label,
+                error.kind(),
+                error.detail(),
+                error.classify().status()
+            ));
+        }
+    }
+
+    let effective = wallet.capabilities.effective();
+    out.line(format!(
+        "[{}] capabilities effective_source={} effective_methods=[{}]",
+        wallet.label,
+        effective.source.as_str(),
+        effective.methods.join(",")
+    ));
+
+    let discrepancies = wallet.capabilities.discrepancies();
+    if discrepancies.is_empty() {
+        out.line(format!("[{}] capability_discrepancies=none", wallet.label));
+    } else {
+        let text = discrepancies
+            .iter()
+            .map(|item| {
+                format!(
+                    "{}:present_in={}:absent_in={}",
+                    item.method,
+                    item.present_in.as_str(),
+                    item.absent_in.as_str()
+                )
+            })
+            .collect::<Vec<String>>()
+            .join(",");
+        out.line(format!(
+            "[{}] capability_discrepancies=[{text}]",
+            wallet.label
+        ));
+    }
+
+    if wallet.capabilities.info_event.found && wallet.capabilities.info_event.methods.is_empty() {
+        out.line(format!(
+            "[{}] info_event lists no method token, fell_back_to_get_info={}",
+            wallet.label,
+            wallet.details.is_some()
+        ));
+    }
+}
+
+fn apply_balance(
+    wallet: &mut WalletState,
+    result: Result<u64, NwcError>,
+    out: &mut Output,
+) -> Option<u64> {
+    match result {
+        Ok(balance_msat) => {
+            out.line(format!(
+                "[{}] get_balance balance_msat={balance_msat} balance_sats={}",
+                wallet.label,
+                balance_msat / 1_000
+            ));
+            Some(balance_msat)
+        }
+        Err(error) => {
+            out.line(format!(
+                "[{}] get_balance=failed kind={} detail={} status={}",
+                wallet.label,
+                error.kind(),
+                error.detail(),
+                error.classify().status()
+            ));
+            None
+        }
+    }
+}
+
+fn delta(before: u64, after: u64) -> i64 {
+    i64::try_from(after).unwrap_or(i64::MAX) - i64::try_from(before).unwrap_or(i64::MAX)
+}
+
+fn status_of(pass: bool) -> Status {
+    classify_wallet_outcome(if pass {
+        Observation::ExpectedBehaviourObserved
+    } else {
+        Observation::ExpectedBehaviourNotObserved
+    })
+    .status()
+}
+
+fn connect_test(payer: &WalletState, receiver: &WalletState) -> TestResult {
+    let pass = payer.connect_error.is_none()
+        && receiver.connect_error.is_none()
+        && payer.relays_connected > 0
+        && receiver.relays_connected > 0;
+
+    TestResult::new("connect", "connect", status_of(pass), true).with_detail(
+        "both wallets connect to their relay",
+        format!(
+            "payer relays_connected={} receiver relays_connected={}",
+            payer.relays_connected, receiver.relays_connected
+        ),
+    )
+}
+
+fn info_event_test(payer: &WalletState, receiver: &WalletState) -> TestResult {
+    let pass = payer.info.is_some() && receiver.info.is_some();
+
+    TestResult::new("info_event", "info_event", status_of(pass), true)
+        .with_required_capability("info_event")
+        .with_detail(
+            "kind 13194 info event from both wallets",
+            format!(
+                "payer_found={} receiver_found={} payer_source={} receiver_source={}",
+                payer.info.is_some(),
+                receiver.info.is_some(),
+                payer.effective_source().as_str(),
+                receiver.effective_source().as_str()
+            ),
+        )
+}
+
+fn get_info_test(payer: &WalletState, receiver: &WalletState) -> TestResult {
+    let pass = payer.details.is_some() && receiver.details.is_some();
+
+    TestResult::new("get_info", "get_info", status_of(pass), true)
+        .with_required_capability("get_info")
+        .with_detail(
+            "get_info answers with alias and network",
+            format!(
+                "payer_alias_present={} receiver_alias_present={} receiver_network={:?}",
+                payer.details.as_ref().is_some_and(|d| d.alias.is_some()),
+                receiver.details.as_ref().is_some_and(|d| d.alias.is_some()),
+                receiver.details.as_ref().and_then(|d| d.network.clone())
+            ),
+        )
+}
+
+fn get_balance_test(payer: &WalletState, receiver: &WalletState) -> TestResult {
+    let pass = payer.balance_before_msat.is_some() && receiver.balance_before_msat.is_some();
+
+    TestResult::new("get_balance", "get_balance", status_of(pass), true)
+        .with_required_capability("get_balance")
+        .with_detail(
+            "both wallets report a balance",
+            format!(
+                "payer_reported={} receiver_reported={}",
+                payer.balance_before_msat.is_some(),
+                receiver.balance_before_msat.is_some()
+            ),
+        )
+}
+
+fn make_invoice_test(pass: bool, diagnostics: Vec<String>) -> TestResult {
+    TestResult::new("make_invoice", "make_invoice", status_of(pass), true)
+        .with_required_capability("make_invoice")
+        .with_detail(
+            "receiver issues a 21000 msat invoice with a payment hash",
+            if pass {
+                String::from("invoice issued and parsed")
+            } else {
+                String::from("invoice missing or unexpected")
+            },
+        )
+        .with_diagnostics(diagnostics)
+}
+
+async fn lookup(
+    receiver: &WalletState,
+    payment_hash_hex: Option<&str>,
+    approved: bool,
+    out: &mut Output,
+) -> (Status, String, Vec<String>) {
+    let Some(payment_hash_hex) = payment_hash_hex else {
+        out.line("[receiver] lookup_invoice=skipped no_payment_hash");
+        return (
+            Status::Fail,
+            String::from("no payment hash"),
+            vec![String::from("reason=NO_PAYMENT_HASH")],
+        );
     };
 
-    match info_event_caps {
-        Some(methods) => Capabilities {
-            source: "info_event",
-            methods,
-        },
-        None => Capabilities {
-            source: "get_info",
-            methods: info_methods,
-        },
-    }
-}
-
-async fn probe_unsupported_method(wallet: &Wallet, caps: &Capabilities, out: &mut Output) {
-    let absent: Vec<&str> = PROBE_CANDIDATES
-        .iter()
-        .copied()
-        .filter(|method| !caps.advertises(method))
-        .collect();
-
-    if absent.is_empty() {
+    let advertised = receiver.capabilities.advertises("lookup_invoice");
+    if !advertised.is_yes() {
+        let classified = classify_wallet_outcome(Observation::MethodNotAdvertised);
         out.line(format!(
-            "probe=NOT_APPLICABLE all_candidates_advertised [source={}]",
-            caps.source
+            "[receiver] lookup_invoice=UNSUPPORTED advertised=false no_request_sent=true source={}",
+            advertised.source().map_or("none", CapabilitySource::as_str)
         ));
-        return;
+        return (
+            classified.status(),
+            String::from("lookup_invoice not advertised, so no request was sent"),
+            vec![format!("reason={}", classified.reason_code())],
+        );
     }
 
-    if !absent.contains(&"list_transactions") {
-        out.line(format!(
-            "probe=NOT_APPLICABLE absent_methods=[{}] no_typed_api [source={}]",
-            absent.join(","),
-            caps.source
-        ));
-        return;
-    }
-
-    match wallet
-        .client
-        .list_transactions(ListTransactionsRequest::default())
-        .timeout(REQUEST_TIMEOUT)
-        .await
-    {
-        Ok(_) => out.line("probe method=list_transactions result=accepted_unexpectedly"),
-        Err(error) => {
+    match receiver.session.lookup_invoice(payment_hash_hex).await {
+        Ok(found) => {
+            let state = found
+                .state
+                .clone()
+                .unwrap_or_else(|| String::from("unknown"));
             out.line(format!(
-                "probe method=list_transactions error_kind={} error_message={error}",
-                error.kind()
+                "[receiver] lookup_invoice state={state} amount_msat={} fees_paid_msat={} settled_at_present={}",
+                found.amount_msat,
+                found.fees_paid_msat,
+                found.settled_at.is_some()
             ));
+
+            let expected = if approved { "settled" } else { "pending" };
+            let pass = state == expected;
+
+            (
+                status_of(pass),
+                format!("state={state}"),
+                vec![
+                    format!("expected_state={expected}"),
+                    format!(
+                        "source={}",
+                        advertised.source().map_or("none", CapabilitySource::as_str)
+                    ),
+                ],
+            )
+        }
+        Err(error) => {
+            let classified = error.classify();
+            out.line(format!(
+                "[receiver] lookup_invoice=failed kind={} detail={} status={} reason={}",
+                error.kind(),
+                error.detail(),
+                classified.status(),
+                classified.reason_code()
+            ));
+            (
+                classified.status(),
+                format!("lookup failed: {}", error.detail()),
+                vec![
+                    format!("error_kind={}", error.kind()),
+                    format!("reason={}", classified.reason_code()),
+                ],
+            )
         }
     }
 }
 
-fn encryption_tags(event: &Event) -> Vec<String> {
-    event
-        .tags
-        .iter()
-        .filter_map(|tag| match Nip47Tag::try_from(tag) {
-            Ok(Nip47Tag::Encryption(ciphers)) => Some(ciphers.to_string()),
-            Err(_) => None,
-        })
-        .collect()
+fn sign_message_test(payer: &WalletState, out: &mut Output) -> TestResult {
+    let advertised: Advertisement = payer.capabilities.advertises("sign_message");
+    let classified = classify_wallet_outcome(Observation::MethodNotAdvertised);
+    let source = advertised.source().map_or("none", CapabilitySource::as_str);
+
+    let actual = if advertised.is_yes() {
+        // The adapter has no sign_message request, so nothing is sent even when
+        // a wallet claims to support the method.
+        out.line(
+            "[payer] sign_message=UNSUPPORTED advertised=true no_request_sent=true adapter_support=none",
+        );
+        String::from("advertised, but the adapter sends no sign_message request")
+    } else {
+        out.line(format!(
+            "[payer] sign_message=UNSUPPORTED advertised=false no_request_sent=true source={source}"
+        ));
+        String::from("not advertised, so no request was sent")
+    };
+
+    TestResult::new("sign_message", "sign_message", classified.status(), false)
+        .with_required_capability("sign_message")
+        .with_detail("sign_message available or not advertised", actual)
+        .with_diagnostic(format!("reason={}", classified.reason_code()))
+        .with_diagnostic(format!("source={source}"))
 }
 
-fn string_array(value: Option<&serde_json::Value>) -> Vec<String> {
-    value
-        .and_then(|value| value.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
-}
+/// Adds the value of the `secret=` parameter of a connection string, as a
+/// secret, so it is scrubbed as well as the whole string.
+fn add_secret_component(scrubber: &mut Scrubber, connection: &SecretString) {
+    let text = connection.expose_secret();
+    let Some((_, rest)) = text.split_once("secret=") else {
+        return;
+    };
+    let value = rest.split('&').next().unwrap_or(rest);
 
-fn hex_to_32(hex: &str) -> Option<[u8; 32]> {
-    if hex.len() != 64 {
-        return None;
+    if !value.is_empty() {
+        scrubber.add(SecretString::from(value.to_owned()));
     }
-
-    let mut bytes = [0u8; 32];
-    for (index, chunk) in bytes.iter_mut().enumerate() {
-        *chunk = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).ok()?;
-    }
-    Some(bytes)
 }

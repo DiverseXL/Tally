@@ -1,7 +1,18 @@
 //! Nostr Wallet Connect adapter for Tally.
 //!
-//! Currently this crate provides the connection-string reader and the pure
-//! pre-payment guard. The NWC client wrapper itself is not built yet.
+//! The adapter is the only crate in the workspace that uses the `nwc` and
+//! `nostr` crates; nothing from those SDKs appears in its public API. Payments
+//! require a [`PaymentPermit`], which is consumed on use and never retried.
 
 pub mod connection;
+pub mod error;
 pub mod guard;
+pub mod permit;
+pub mod session;
+
+pub use error::{NwcError, NwcErrorKind};
+pub use permit::{LIVE_ACKNOWLEDGEMENT, PaymentPermit};
+pub use session::{
+    ConnectReport, InfoEventRecord, InvoiceLookup, MadeInvoice, NWC_CLIENT_VERSION, PaidInvoice,
+    SessionOptions, WalletInfo, WalletSession, verify_preimage_sha256,
+};
