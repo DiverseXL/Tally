@@ -3,6 +3,7 @@ name = "tally-nwc"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 bitcoin = { workspace = true, features = ["std", "secp-recovery"] }

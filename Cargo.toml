@@ -6,6 +6,7 @@ members = ["crates/*", "apps/*"]
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "MIT"
 
 # Versions proven to build and run together on this machine in the Step 2 spike.
 # No features here: members enable only what their code needs.
