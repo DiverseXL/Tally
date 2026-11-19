@@ -10,6 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use nostr::key::Keys;
 use serde_json::Value;
 use tally_runner::test_support::{FakeConfig, FakePair, PayMode};
 use tally_runner::{Profile, RunConfig, RunOutcome, run_with_observer};
@@ -17,12 +18,19 @@ use tally_server::{
     AppState, EventSink, RunExecutor, RunRequest, SecretRef, ServerConfig, WalletSet, app, bind,
 };
 
-/// A syntactically valid connection string with a throwaway key. Parsing it
-/// opens no socket, and no test here sends it anywhere.
-const DUMMY_URI: &str = "nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4?secret=71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c&relay=wss%3A%2F%2Frelay.example.com";
+/// A syntactically valid connection string built from a fresh throwaway key,
+/// returned with the secret it carries. Parsing it opens no socket, and no test
+/// here sends it anywhere.
+fn dummy_connection() -> (String, String) {
+    let keys = Keys::generate();
+    let pubkey = keys.public_key().to_hex();
+    let secret = keys.secret_key().to_secret_hex();
+    let uri = format!(
+        "nostr+walletconnect://{pubkey}?secret={secret}&relay=wss%3A%2F%2Frelay.example.com"
+    );
 
-/// The five-character fragment of the dummy secret that must never be echoed.
-const DUMMY_SENTINEL: &str = "71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c";
+    (uri, secret)
+}
 
 struct FakeExecutor {
     pair: Arc<FakePair>,
@@ -85,9 +93,11 @@ fn temp_dir(name: &str) -> PathBuf {
 }
 
 fn ready_wallets() -> WalletSet {
+    let (uri, _) = dummy_connection();
+
     WalletSet::new(
-        Some(SecretRef::new(String::from(DUMMY_URI), "env")),
-        Some(SecretRef::new(String::from(DUMMY_URI), "env")),
+        Some(SecretRef::new(uri.clone(), "env")),
+        Some(SecretRef::new(uri, "env")),
     )
 }
 
@@ -288,12 +298,12 @@ fn run_dirs(dir: &Path) -> Vec<String> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_01_status_has_no_secret_and_reports_readiness() {
-    let server = start(
-        "status",
-        FakePair::new(FakeConfig::default()),
-        ready_wallets(),
-    )
-    .await;
+    let (uri, secret) = dummy_connection();
+    let wallets = WalletSet::new(
+        Some(SecretRef::new(uri.clone(), "env")),
+        Some(SecretRef::new(uri, "env")),
+    );
+    let server = start("status", FakePair::new(FakeConfig::default()), wallets).await;
 
     let response = server
         .client
@@ -303,7 +313,7 @@ async fn test_01_status_has_no_secret_and_reports_readiness() {
         .unwrap();
     assert_eq!(response.status(), 200);
     let text = response.text().await.unwrap();
-    assert!(!text.contains(DUMMY_SENTINEL));
+    assert!(!text.contains(&secret));
     assert!(!text.contains("nostr+walletconnect"));
 
     let value: Value = serde_json::from_str(&text).expect("status json");

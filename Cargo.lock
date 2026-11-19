@@ -2372,6 +2372,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "nostr",
  "reqwest",
  "secrecy",
  "serde",

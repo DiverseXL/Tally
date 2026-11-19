@@ -138,6 +138,7 @@ mod tests {
     use bitcoin::hashes::sha256;
     use bitcoin::secp256k1::{Secp256k1, SecretKey};
     use lightning_invoice::{Currency, InvoiceBuilder};
+    use nostr::key::Keys;
     use secrecy::SecretString;
 
     use super::WalletApi;
@@ -145,14 +146,19 @@ mod tests {
     use crate::session::{SessionOptions, WalletSession};
     use tally_core::report::EnvClass;
 
-    /// A syntactically valid connection string with a throwaway key. Parsing
-    /// it opens no socket; no test here connects.
-    fn dummy_session() -> WalletSession {
-        let connection = SecretString::from(String::from(
-            "nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4?secret=71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c&relay=wss%3A%2F%2Frelay.example.com",
+    /// A syntactically valid connection string built from a fresh throwaway
+    /// key, returned with the pubkey it names. Parsing it opens no socket; no
+    /// test here connects.
+    fn dummy_session() -> (WalletSession, String) {
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        let secret = keys.secret_key().to_secret_hex();
+        let connection = SecretString::from(format!(
+            "nostr+walletconnect://{pubkey}?secret={secret}&relay=wss%3A%2F%2Frelay.example.com"
         ));
+        let session = WalletSession::with_options(&connection, SessionOptions::default()).unwrap();
 
-        WalletSession::with_options(&connection, SessionOptions::default()).unwrap()
+        (session, pubkey)
     }
 
     /// Builds a signed invoice offline. No network is used.
@@ -177,12 +183,9 @@ mod tests {
 
     #[test]
     fn session_implements_the_trait_without_opening_a_socket() {
-        let session = dummy_session();
+        let (session, pubkey) = dummy_session();
 
-        assert_eq!(
-            WalletApi::service_pubkey_hex(&session),
-            "b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4"
-        );
+        assert_eq!(WalletApi::service_pubkey_hex(&session), pubkey);
         assert_eq!(WalletApi::relay_hosts(&session), vec!["relay.example.com"]);
     }
 
@@ -203,7 +206,7 @@ mod tests {
 
     #[test]
     fn the_trait_works_as_a_generic_bound() {
-        let session = dummy_session();
+        let (session, _) = dummy_session();
         assert_eq!(accepts_generic(&session), 1);
     }
 }

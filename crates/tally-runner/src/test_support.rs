@@ -63,8 +63,11 @@ pub struct FakeConfig {
     pub payer_get_info: &'static str,
     /// TEST ONLY: get_info method list of the receiver.
     pub receiver_get_info: &'static str,
-    /// TEST ONLY: the `encryption` tag tokens of both info events, space separated.
+    /// TEST ONLY: the `encryption` tag tokens of the payer info event, space separated.
     pub encryption_tokens: &'static str,
+    /// TEST ONLY: the `encryption` tag tokens of the receiver info event, space separated.
+    /// When `None` the receiver uses the same tokens as the payer.
+    pub receiver_encryption_tokens: Option<&'static str>,
     /// TEST ONLY: the network both wallets report.
     pub network: &'static str,
     /// TEST ONLY: invoice behaviour of the receiver.
@@ -86,6 +89,7 @@ impl Default for FakeConfig {
             payer_get_info: "pay_invoice get_info get_balance make_invoice lookup_invoice",
             receiver_get_info: "pay_invoice get_info get_balance make_invoice lookup_invoice",
             encryption_tokens: "nip44_v2 nip04",
+            receiver_encryption_tokens: None,
             network: "signet",
             invoice: InvoiceMode::Normal,
             pay: PayMode::Correct,
@@ -169,9 +173,14 @@ impl FakeWallet {
             .split_whitespace()
             .map(str::to_owned)
             .collect::<Vec<String>>();
-        let encryption_tokens = self
-            .config()
-            .encryption_tokens
+        let token_str = if self.role_payer {
+            self.config().encryption_tokens
+        } else {
+            self.config()
+                .receiver_encryption_tokens
+                .unwrap_or(self.config().encryption_tokens)
+        };
+        let encryption_tokens = token_str
             .split_whitespace()
             .map(str::to_owned)
             .collect::<Vec<String>>();

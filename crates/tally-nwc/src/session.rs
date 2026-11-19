@@ -738,6 +738,7 @@ fn state_name(state: TransactionState) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use nostr::key::Keys;
     use secrecy::SecretString;
 
     use super::{
@@ -750,35 +751,36 @@ mod tests {
 
     const SENTINEL_INVOICE: &str = "lnbc21sentinelinvoicevalue";
 
-    fn dummy_session() -> WalletSession {
-        // A syntactically valid connection string with a throwaway key. Parsing
-        // it opens no socket; no test here connects.
-        let connection = SecretString::from(String::from(
-            "nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4?secret=71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c&relay=wss%3A%2F%2Frelay.example.com",
+    /// A syntactically valid connection string built from a fresh throwaway
+    /// key, returned with the pubkey and secret it carries. Parsing it opens no
+    /// socket; no test here connects.
+    fn dummy_connection() -> (SecretString, String, String) {
+        let keys = Keys::generate();
+        let pubkey = keys.public_key().to_hex();
+        let secret = keys.secret_key().to_secret_hex();
+        let connection = SecretString::from(format!(
+            "nostr+walletconnect://{pubkey}?secret={secret}&relay=wss%3A%2F%2Frelay.example.com"
         ));
 
-        WalletSession::with_options(&connection, SessionOptions::default()).unwrap()
+        (connection, pubkey, secret)
     }
 
     #[test]
     fn session_reports_pubkey_and_hosts_only() {
-        let session = dummy_session();
+        let (connection, pubkey, _) = dummy_connection();
+        let session = WalletSession::with_options(&connection, SessionOptions::default()).unwrap();
 
-        assert_eq!(
-            session.service_pubkey_hex(),
-            "b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4"
-        );
+        assert_eq!(session.service_pubkey_hex(), pubkey);
         assert_eq!(session.relay_hosts(), vec!["relay.example.com"]);
     }
 
     #[test]
     fn session_debug_has_no_secret() {
-        let session = dummy_session();
+        let (connection, _, secret) = dummy_connection();
+        let session = WalletSession::with_options(&connection, SessionOptions::default()).unwrap();
         let debug = format!("{session:?}");
 
-        assert!(
-            !debug.contains("71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c")
-        );
+        assert!(!debug.contains(&secret));
         assert!(!debug.contains("nostr+walletconnect"));
         assert!(!debug.contains("secret="));
         assert!(!debug.contains("relay.example.com"));
@@ -856,9 +858,7 @@ mod tests {
         };
         assert!(format!("{lookup:?}").contains("pending"));
 
-        let connection = SecretString::from(String::from(
-            "nostr+walletconnect://b889ff5b1513b641e2a139f661a661364979c5beee91842f8f0ef42ab558e9d4?secret=71a8c14c1407c113601079c4302dab36460f0ccd0ad506f1f2dc73b5100e4f3c&relay=wss%3A%2F%2Frelay.example.com",
-        ));
+        let (connection, ..) = dummy_connection();
         assert!(WalletSession::new(&connection).is_ok());
 
         let _ = PaymentPermit::issue(

@@ -26,8 +26,8 @@ use tally_l402::fixture::{self, FixtureConfig, FixtureHandle, NwcInvoiceSource};
 use tally_l402::invoice::{self, InvoiceFacts};
 use tally_l402::macaroon;
 use tally_nwc::{
-    EncryptionMode, LIVE_ACKNOWLEDGEMENT, PaymentPermit, WalletApi, select_encryption_mode,
-    verify_preimage_sha256,
+    EncryptionMode, LIVE_ACKNOWLEDGEMENT, NwcError, NwcErrorKind, PaymentPermit, WalletApi,
+    select_encryption_mode, verify_preimage_sha256,
 };
 
 use crate::config::RunConfig;
@@ -167,7 +167,7 @@ where
     let started_at = now_rfc3339();
     let run_id = config.run_id.clone().unwrap_or_else(new_run_id);
 
-    let mut ctx = Ctx::new(profile, config, payer, &receiver, observer);
+    let mut ctx = Ctx::new(profile, config, payer, receiver, observer);
     let mut fixture = None;
 
     if profile == Profile::L402E2e {
@@ -205,13 +205,14 @@ struct Ctx<'a, P, R, O> {
     profile: Profile,
     config: &'a RunConfig,
     payer: &'a mut P,
-    receiver: &'a Arc<R>,
+    receiver: Arc<R>,
     observer: &'a mut O,
     results: Vec<TestResult>,
     payer_caps: Option<Capabilities>,
     receiver_caps: Option<Capabilities>,
     payer_network: Option<String>,
     payer_encryption_mode: Option<EncryptionMode>,
+    receiver_encryption_mode: Option<EncryptionMode>,
     challenge: Option<Challenge>,
     facts: Option<InvoiceFacts>,
     paid_preimage: Option<SecretString>,
@@ -231,7 +232,7 @@ where
         profile: Profile,
         config: &'a RunConfig,
         payer: &'a mut P,
-        receiver: &'a Arc<R>,
+        receiver: Arc<R>,
         observer: &'a mut O,
     ) -> Self {
         Self {
@@ -245,6 +246,7 @@ where
             receiver_caps: None,
             payer_network: None,
             payer_encryption_mode: None,
+            receiver_encryption_mode: None,
             challenge: None,
             facts: None,
             paid_preimage: None,
@@ -471,6 +473,20 @@ where
             self.payer_encryption_mode = Some(payer_mode);
         }
 
+        // The same rule picks the receiver's cipher, and it is applied the same
+        // way. This runs before the fixture clones the receiver, so the handle
+        // is unique here; if it ever is not, the selected mode is still
+        // recorded and the failure to apply it is named in the diagnostics.
+        let receiver_mode = select_encryption_mode(&receiver_info.encryption_tokens);
+        let receiver_applied = match Arc::get_mut(&mut self.receiver) {
+            Some(session) => session.set_encryption_mode(receiver_mode).await,
+            None => Err(NwcError::new(
+                NwcErrorKind::Transport,
+                "receiver_session_shared",
+            )),
+        };
+        self.receiver_encryption_mode = Some(receiver_mode);
+
         let mut diagnostics = vec![
             format!("content_kind={}", payer_info.content_kind().as_str()),
             format!("receiver_info_event_found={}", receiver_info.found),
@@ -481,13 +497,18 @@ where
             ),
             format!(
                 "receiver_encryption_mode={}",
-                self.receiver
-                    .encryption_mode()
-                    .map_or("none", EncryptionMode::as_str)
+                self.receiver_encryption_mode
+                    .map_or("not_applied", EncryptionMode::as_str)
             ),
         ];
         if let Err(error) = applied {
             diagnostics.push(format!("encryption_apply_error={}", error.kind().as_str()));
+        }
+        if let Err(error) = receiver_applied {
+            diagnostics.push(format!(
+                "receiver_encryption_apply_error={}",
+                error.kind().as_str()
+            ));
         }
         self.push_diagnostics("info_event", &diagnostics);
     }
@@ -696,7 +717,7 @@ where
             }
         }
 
-        let source = NwcInvoiceSource::new(Arc::clone(self.receiver));
+        let source = NwcInvoiceSource::new(Arc::clone(&self.receiver));
         let config = FixtureConfig {
             amount_msat: self.config.amount_msat,
             expiry_seconds: self.config.invoice_expiry_seconds,

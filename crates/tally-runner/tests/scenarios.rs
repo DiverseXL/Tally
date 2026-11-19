@@ -392,3 +392,45 @@ async fn scenario_14_nip04_only_wallet_records_nip04() {
         Some("nip04")
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scenario_15_payer_and_receiver_keep_their_own_modes() {
+    let dir = workdir("15");
+    let pair = FakePair::new(FakeConfig {
+        encryption_tokens: "nip44_v2 nip04",
+        receiver_encryption_tokens: Some("nip04"),
+        ..FakeConfig::default()
+    });
+
+    let outcome = run_pair(&pair, &config(&dir)).await;
+
+    // Each wallet picks its own cipher from its own info event: the receiver
+    // must not inherit the payer's mode.
+    assert_eq!(
+        outcome
+            .report
+            .environment
+            .encryption_mode_selected
+            .as_deref(),
+        Some("nip44_v2")
+    );
+
+    let info_event = outcome
+        .report
+        .tests
+        .iter()
+        .find(|test| test.id == "info_event")
+        .expect("info_event result");
+    assert!(
+        info_event
+            .diagnostics
+            .iter()
+            .any(|line| line == "payer_encryption_mode=nip44_v2")
+    );
+    assert!(
+        info_event
+            .diagnostics
+            .iter()
+            .any(|line| line == "receiver_encryption_mode=nip04")
+    );
+}
