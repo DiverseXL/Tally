@@ -25,7 +25,10 @@ use tally_l402::client::{ClientErrorKind, L402Client};
 use tally_l402::fixture::{self, FixtureConfig, FixtureHandle, NwcInvoiceSource};
 use tally_l402::invoice::{self, InvoiceFacts};
 use tally_l402::macaroon;
-use tally_nwc::{LIVE_ACKNOWLEDGEMENT, PaymentPermit, WalletApi, verify_preimage_sha256};
+use tally_nwc::{
+    EncryptionMode, LIVE_ACKNOWLEDGEMENT, PaymentPermit, WalletApi, select_encryption_mode,
+    verify_preimage_sha256,
+};
 
 use crate::config::RunConfig;
 use crate::guard;
@@ -40,6 +43,54 @@ pub const SANDBOX_LIMITATION: &str = "Sandbox wallets from the NWC faucet: balan
 
 /// The limitation every l402-e2e run carries.
 pub const FIXTURE_LIMITATION: &str = "The protected resource is served by a local test fixture started by Tally on 127.0.0.1; this proves Tally's flow, not compatibility with third-party L402 services.";
+
+/// Which half of a step an observer is hearing about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepPhase {
+    /// The step is about to run.
+    Started,
+    /// The step produced its result.
+    Finished,
+}
+
+/// One step boundary, as reported to a [`StepObserver`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepEvent {
+    /// The test id from the profile.
+    pub id: &'static str,
+    /// Started or finished.
+    pub phase: StepPhase,
+    /// The status once the step finished; none while it runs.
+    pub status: Option<Status>,
+    /// The reason code once the step finished; none while it runs.
+    pub reason: Option<String>,
+}
+
+/// Receives every step as it starts and finishes.
+///
+/// The runner stays generic over the observer, never `dyn`, and the default
+/// [`NoopObserver`] keeps `run` callers unchanged.
+pub trait StepObserver {
+    /// Called once when a step starts and once when it finishes.
+    fn step(&mut self, event: &StepEvent);
+}
+
+impl<F> StepObserver for F
+where
+    F: FnMut(&StepEvent),
+{
+    fn step(&mut self, event: &StepEvent) {
+        self(event);
+    }
+}
+
+/// An observer that ignores every event.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoopObserver;
+
+impl StepObserver for NoopObserver {
+    fn step(&mut self, _event: &StepEvent) {}
+}
 
 /// Why a run could not produce a report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,19 +135,39 @@ pub struct RunOutcome {
 /// [`RunError::ReportWrite`] when the reports cannot be written.
 pub async fn run<P, R>(
     profile: Profile,
-    payer: &P,
+    payer: &mut P,
     receiver: Arc<R>,
     config: &RunConfig,
 ) -> Result<RunOutcome, RunError>
 where
-    P: WalletApi + Sync,
+    P: WalletApi + Send + Sync,
     R: WalletApi + Send + Sync + 'static,
+{
+    run_with_observer(profile, payer, receiver, config, &mut NoopObserver).await
+}
+
+/// Runs one profile and reports every step boundary to `observer`.
+///
+/// # Errors
+///
+/// [`RunError::ReportWrite`] when the reports cannot be written.
+pub async fn run_with_observer<P, R, O>(
+    profile: Profile,
+    payer: &mut P,
+    receiver: Arc<R>,
+    config: &RunConfig,
+    observer: &mut O,
+) -> Result<RunOutcome, RunError>
+where
+    P: WalletApi + Send + Sync,
+    R: WalletApi + Send + Sync + 'static,
+    O: StepObserver + Send,
 {
     let started = Instant::now();
     let started_at = now_rfc3339();
     let run_id = new_run_id();
 
-    let mut ctx = Ctx::new(profile, config, payer, &receiver);
+    let mut ctx = Ctx::new(profile, config, payer, &receiver, observer);
     let mut fixture = None;
 
     if profile == Profile::L402E2e {
@@ -130,15 +201,17 @@ where
     })
 }
 
-struct Ctx<'a, P, R> {
+struct Ctx<'a, P, R, O> {
     profile: Profile,
     config: &'a RunConfig,
-    payer: &'a P,
+    payer: &'a mut P,
     receiver: &'a Arc<R>,
+    observer: &'a mut O,
     results: Vec<TestResult>,
     payer_caps: Option<Capabilities>,
     receiver_caps: Option<Capabilities>,
     payer_network: Option<String>,
+    payer_encryption_mode: Option<EncryptionMode>,
     challenge: Option<Challenge>,
     facts: Option<InvoiceFacts>,
     paid_preimage: Option<SecretString>,
@@ -148,21 +221,30 @@ struct Ctx<'a, P, R> {
     guard_cleared: usize,
 }
 
-impl<'a, P, R> Ctx<'a, P, R>
+impl<'a, P, R, O> Ctx<'a, P, R, O>
 where
-    P: WalletApi + Sync,
+    P: WalletApi + Send + Sync,
     R: WalletApi + Send + Sync + 'static,
+    O: StepObserver,
 {
-    fn new(profile: Profile, config: &'a RunConfig, payer: &'a P, receiver: &'a Arc<R>) -> Self {
+    fn new(
+        profile: Profile,
+        config: &'a RunConfig,
+        payer: &'a mut P,
+        receiver: &'a Arc<R>,
+        observer: &'a mut O,
+    ) -> Self {
         Self {
             profile,
             config,
             payer,
             receiver,
+            observer,
             results: Vec::new(),
             payer_caps: None,
             receiver_caps: None,
             payer_network: None,
+            payer_encryption_mode: None,
             challenge: None,
             facts: None,
             paid_preimage: None,
@@ -179,6 +261,17 @@ where
             .unwrap_or_else(|| panic!("profile {} has no test {id}", self.profile))
     }
 
+    fn step_started(&mut self, id: &'static str) {
+        tracing::info!(event = "step_started", id, "step started");
+
+        self.observer.step(&StepEvent {
+            id,
+            phase: StepPhase::Started,
+            status: None,
+            reason: None,
+        });
+    }
+
     fn push(&mut self, id: &str, outcome: Outcome, expected: &str, actual: String) {
         tracing::info!(
             event = "step_finished",
@@ -188,6 +281,13 @@ where
         );
 
         let spec = self.spec(id);
+
+        self.observer.step(&StepEvent {
+            id: spec.id,
+            phase: StepPhase::Finished,
+            status: Some(outcome.status()),
+            reason: Some(String::from(outcome.reason_code())),
+        });
         let mut result = TestResult::new(spec.id, spec.name, outcome.status(), spec.required)
             .with_detail(expected, actual)
             .with_diagnostic(format!("reason={}", outcome.reason_code()));
@@ -266,7 +366,7 @@ where
     }
 
     async fn step_connect(&mut self) {
-        tracing::info!(event = "step_started", id = "connect", "step started");
+        self.step_started("connect");
 
         let (payer, receiver) = tokio::join!(self.payer.connect(), self.receiver.connect());
 
@@ -305,7 +405,7 @@ where
     }
 
     async fn step_info_event(&mut self) {
-        tracing::info!(event = "step_started", id = "info_event", "step started");
+        self.step_started("info_event");
 
         if !self.prerequisites_ok("info_event") {
             self.blocked_on_prerequisite("info_event", "the payer publishes an info event");
@@ -363,15 +463,37 @@ where
             String::from("info event received"),
         );
 
-        let diagnostics = vec![
+        // The cipher is picked from the payer's info event and passed to the
+        // wallet explicitly, so the report can name the one actually used.
+        let payer_mode = select_encryption_mode(&payer_info.encryption_tokens);
+        let applied = self.payer.set_encryption_mode(payer_mode).await;
+        if applied.is_ok() {
+            self.payer_encryption_mode = Some(payer_mode);
+        }
+
+        let mut diagnostics = vec![
             format!("content_kind={}", payer_info.content_kind().as_str()),
             format!("receiver_info_event_found={}", receiver_info.found),
+            format!(
+                "payer_encryption_mode={}",
+                self.payer_encryption_mode
+                    .map_or("not_applied", EncryptionMode::as_str)
+            ),
+            format!(
+                "receiver_encryption_mode={}",
+                self.receiver
+                    .encryption_mode()
+                    .map_or("none", EncryptionMode::as_str)
+            ),
         ];
+        if let Err(error) = applied {
+            diagnostics.push(format!("encryption_apply_error={}", error.kind().as_str()));
+        }
         self.push_diagnostics("info_event", &diagnostics);
     }
 
     async fn step_get_info(&mut self) {
-        tracing::info!(event = "step_started", id = "get_info", "step started");
+        self.step_started("get_info");
 
         if !self.prerequisites_ok("get_info") {
             self.blocked_on_prerequisite("get_info", "both wallets answer get_info");
@@ -425,7 +547,7 @@ where
     }
 
     async fn step_get_balance(&mut self) {
-        tracing::info!(event = "step_started", id = "get_balance", "step started");
+        self.step_started("get_balance");
 
         if !self.prerequisites_ok("get_balance") {
             self.blocked_on_prerequisite("get_balance", "both wallets report a balance");
@@ -461,7 +583,7 @@ where
     }
 
     async fn step_make_invoice(&mut self) {
-        tracing::info!(event = "step_started", id = "make_invoice", "step started");
+        self.step_started("make_invoice");
 
         if !self.prerequisites_ok("make_invoice") {
             self.blocked_on_prerequisite("make_invoice", "the receiver issues an invoice");
@@ -508,11 +630,7 @@ where
     }
 
     async fn step_lookup_basic(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "lookup_invoice",
-            "step started"
-        );
+        self.step_started("lookup_invoice");
 
         if !self.prerequisites_ok("lookup_invoice") {
             self.blocked_on_prerequisite("lookup_invoice", "the invoice is found as pending");
@@ -558,7 +676,7 @@ where
     }
 
     async fn step_challenge(&mut self, slot: &mut Option<FixtureHandle>) {
-        tracing::info!(event = "step_started", id = "challenge", "step started");
+        self.step_started("challenge");
 
         if !self.prerequisites_ok("challenge") {
             self.blocked_on_prerequisite("challenge", "402 with a valid L402 challenge");
@@ -664,11 +782,7 @@ where
     }
 
     fn step_invoice_validation(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "invoice_validation",
-            "step started"
-        );
+        self.step_started("invoice_validation");
 
         let expected = "the invoice parses, matches the network and amount, and is not expired";
 
@@ -742,11 +856,7 @@ where
     }
 
     fn step_challenge_binding(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "challenge_binding",
-            "step started"
-        );
+        self.step_started("challenge_binding");
 
         let expected = "the macaroon binds the invoice payment hash";
 
@@ -785,7 +895,7 @@ where
     }
 
     async fn step_pay_invoice(&mut self) {
-        tracing::info!(event = "step_started", id = "pay_invoice", "step started");
+        self.step_started("pay_invoice");
 
         let expected = "the invoice is paid once";
 
@@ -981,11 +1091,7 @@ where
     }
 
     fn step_preimage(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "preimage_verification",
-            "step started"
-        );
+        self.step_started("preimage_verification");
 
         let expected = "SHA-256 of the preimage equals the invoice payment hash";
 
@@ -1055,11 +1161,7 @@ where
     }
 
     async fn step_protected_resource(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "protected_resource",
-            "step started"
-        );
+        self.step_started("protected_resource");
 
         let expected = "the unlocked body is the expected one";
 
@@ -1161,11 +1263,7 @@ where
     }
 
     async fn step_negative_wrong_proof(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "negative_wrong_proof",
-            "step started"
-        );
+        self.step_started("negative_wrong_proof");
 
         let expected = "a wrong preimage is refused with 402";
 
@@ -1227,11 +1325,7 @@ where
     }
 
     async fn step_negative_no_proof(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "negative_no_proof",
-            "step started"
-        );
+        self.step_started("negative_no_proof");
 
         let expected = "a macaroon without a preimage is refused with 402";
 
@@ -1282,11 +1376,7 @@ where
     }
 
     async fn step_lookup_l402(&mut self) {
-        tracing::info!(
-            event = "step_started",
-            id = "lookup_invoice",
-            "step started"
-        );
+        self.step_started("lookup_invoice");
 
         let expected = "the invoice is found by the receiver";
 
@@ -1318,7 +1408,7 @@ where
     }
 
     fn step_sign_message(&mut self) {
-        tracing::info!(event = "step_started", id = "sign_message", "step started");
+        self.step_started("sign_message");
 
         let advertisement = self
             .payer_caps
@@ -1395,7 +1485,9 @@ where
                     EndpointClass::None
                 },
                 nwc_client: NwcClientIdentity::new("nwc", tally_nwc::NWC_CLIENT_VERSION),
-                encryption_mode_selected: None,
+                encryption_mode_selected: self
+                    .payer_encryption_mode
+                    .map(|mode| String::from(mode.as_str())),
                 network_reported: self.payer_network,
             },
             wallets: vec![

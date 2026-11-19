@@ -10,8 +10,8 @@ use std::future::Future;
 use crate::error::NwcError;
 use crate::permit::PaymentPermit;
 use crate::session::{
-    ConnectReport, InfoEventRecord, InvoiceLookup, MadeInvoice, PaidInvoice, WalletInfo,
-    WalletSession,
+    ConnectReport, EncryptionMode, InfoEventRecord, InvoiceLookup, MadeInvoice, PaidInvoice,
+    WalletInfo, WalletSession,
 };
 
 /// One wallet, addressed by the operations Tally tests.
@@ -26,6 +26,15 @@ pub trait WalletApi {
 
     /// Connects to the relays and waits for the handshake.
     fn connect(&self) -> impl Future<Output = Result<ConnectReport, NwcError>> + Send;
+
+    /// The cipher this wallet was told to use, or `None` until one is chosen.
+    fn encryption_mode(&self) -> Option<EncryptionMode>;
+
+    /// Tells the wallet which NIP-47 cipher to use and reconnects.
+    fn set_encryption_mode(
+        &mut self,
+        mode: EncryptionMode,
+    ) -> impl Future<Output = Result<ConnectReport, NwcError>> + Send;
 
     /// Fetches the kind 13194 info event, if the wallet publishes one.
     fn fetch_info_event(
@@ -70,6 +79,17 @@ impl WalletApi for WalletSession {
 
     fn connect(&self) -> impl Future<Output = Result<ConnectReport, NwcError>> + Send {
         WalletSession::connect(self)
+    }
+
+    fn encryption_mode(&self) -> Option<EncryptionMode> {
+        WalletSession::encryption_mode(self)
+    }
+
+    fn set_encryption_mode(
+        &mut self,
+        mode: EncryptionMode,
+    ) -> impl Future<Output = Result<ConnectReport, NwcError>> + Send {
+        WalletSession::set_encryption_mode(self, mode)
     }
 
     fn fetch_info_event(

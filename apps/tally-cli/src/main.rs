@@ -326,7 +326,7 @@ async fn run_and_print(
         return EXIT_USAGE;
     };
 
-    let Ok(payer_session) = WalletSession::new(&payer.secret) else {
+    let Ok(mut payer_session) = WalletSession::new(&payer.secret) else {
         eprintln!("configuration error: the payer connection string does not parse");
         return EXIT_USAGE;
     };
@@ -340,7 +340,14 @@ async fn run_and_print(
         config.out_dir = dir;
     }
 
-    let outcome = match run(profile, &payer_session, Arc::new(receiver_session), &config).await {
+    let outcome = match run(
+        profile,
+        &mut payer_session,
+        Arc::new(receiver_session),
+        &config,
+    )
+    .await
+    {
         Ok(outcome) => outcome,
         Err(error) => {
             eprintln!("run error: {error}");

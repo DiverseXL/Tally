@@ -166,9 +166,10 @@ async fn a_real_run_keeps_invoice_and_secrets_out_of_both_reports() {
         ..RunConfig::default()
     };
 
+    let mut payer = pair.payer.clone();
     let outcome = run(
         Profile::L402E2e,
-        &pair.payer,
+        &mut payer,
         Arc::new(pair.receiver.clone()),
         &config,
     )

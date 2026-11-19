@@ -11,8 +11,14 @@ pub mod render;
 pub mod run;
 pub mod summary;
 
+#[cfg(feature = "test-support")]
+pub mod test_support;
+
 pub use config::{DEFAULT_AMOUNT_MSAT, DEFAULT_INVOICE_EXPIRY_SECONDS, RunConfig};
 pub use profile::{Profile, TestSpec};
 pub use render::{STATUSES, WrittenReports, escape, to_html, to_json, write_report_files};
-pub use run::{FIXTURE_LIMITATION, RunError, RunOutcome, SANDBOX_LIMITATION, TALLY_VERSION, run};
+pub use run::{
+    FIXTURE_LIMITATION, NoopObserver, RunError, RunOutcome, SANDBOX_LIMITATION, StepEvent,
+    StepObserver, StepPhase, TALLY_VERSION, run, run_with_observer,
+};
 pub use summary::{reason_of, summary_lines};

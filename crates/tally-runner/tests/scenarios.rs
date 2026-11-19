@@ -30,9 +30,11 @@ fn config(dir: &Path) -> RunConfig {
 }
 
 async fn run_pair(pair: &FakePair, config: &RunConfig) -> RunOutcome {
+    let mut payer = pair.payer.clone();
+
     run(
         Profile::L402E2e,
-        &pair.payer,
+        &mut payer,
         Arc::new(pair.receiver.clone()),
         config,
     )
@@ -327,4 +329,66 @@ async fn scenario_12_a_paying_state_file_blocks_the_run() {
     assert_eq!(reason(&outcome, "pay_invoice"), "RUN_GUARD_BLOCKED");
     assert_eq!(pair.pay_calls(), 0);
     assert_eq!(exit_code(&outcome.report), 3);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scenario_13_the_report_records_the_negotiated_encryption_mode() {
+    let dir = workdir("13");
+    let pair = FakePair::new(FakeConfig::default());
+
+    let outcome = run_pair(&pair, &config(&dir)).await;
+
+    // The fake info event lists nip44_v2, so that is the cipher selected and
+    // recorded.
+    assert_eq!(
+        outcome
+            .report
+            .environment
+            .encryption_mode_selected
+            .as_deref(),
+        Some("nip44_v2")
+    );
+
+    let info_event = outcome
+        .report
+        .tests
+        .iter()
+        .find(|test| test.id == "info_event")
+        .expect("info_event result");
+    assert!(
+        info_event
+            .diagnostics
+            .iter()
+            .any(|line| line == "payer_encryption_mode=nip44_v2")
+    );
+    assert!(
+        info_event
+            .diagnostics
+            .iter()
+            .any(|line| line == "receiver_encryption_mode=nip44_v2")
+    );
+
+    // The stored JSON carries the same value, not only the in-memory report.
+    let json = fs::read_to_string(&outcome.json_path).expect("json file");
+    assert!(json.contains("\"encryption_mode_selected\": \"nip44_v2\""));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn scenario_14_nip04_only_wallet_records_nip04() {
+    let dir = workdir("14");
+    let pair = FakePair::new(FakeConfig {
+        encryption_tokens: "nip04",
+        ..FakeConfig::default()
+    });
+
+    let outcome = run_pair(&pair, &config(&dir)).await;
+
+    assert_eq!(
+        outcome
+            .report
+            .environment
+            .encryption_mode_selected
+            .as_deref(),
+        Some("nip04")
+    );
 }

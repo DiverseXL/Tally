@@ -5,6 +5,11 @@ edition.workspace = true
 publish.workspace = true
 license.workspace = true
 
+[features]
+# Off by default. Only a dev-dependency (tally-server's tests) turns it on, so
+# no shipped binary contains the TEST ONLY fake wallets.
+test-support = ["tally-l402/test-support"]
+
 [dependencies]
 secrecy = { workspace = true }
 serde_json = { workspace = true }
@@ -15,6 +20,7 @@ tokio = { workspace = true, features = ["rt", "time"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
+# The invoice generator the fake wallets need when the feature is off.
 tally-l402 = { path = "../tally-l402", features = ["test-support"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
