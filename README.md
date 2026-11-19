@@ -84,6 +84,55 @@ cargo run -q -p tally-cli -- report --input reports/latest/report.json --format 
 
 The first `test` spends nothing and exits 5 (a required test was not tested). The second pays 21 sats once, without retry, and exits 0. Reports land in `reports/<run id>/`; `reports/latest/` always holds the newest run.
 
+## How to test
+
+Everything below runs offline against fake wallets and the local L402 fixture. No run in this section contacts a wallet, a relay or the faucet, and none spends anything.
+
+The three checks that must stay green before any commit:
+
+```
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
+
+The workspace run covers 165 tests. To work on one layer at a time:
+
+```
+cargo test -p tally-core          # status table, outcome mapping, report, redaction
+cargo test -p tally-nwc           # URI parsing, guard, error mapping, permit, session
+cargo test -p tally-l402          # invoice, challenge, macaroon, fixture client
+cargo test -p tally-runner        # scenarios, observer events, HTML renderer, guard
+cargo test -p tally-server        # HTTP API, event stream, security checks
+cargo test -p tally-cli           # command line behaviour and exit codes
+```
+
+To see every test name and how many tests each file holds:
+
+```
+cargo test --workspace -- --list
+```
+
+The runner scenarios drive the full flow with two scripted wallets behind `test-support`, so `pay_invoice`, a replayed permit and a rejected proof are all exercised without a connection string. The server tests bind an ephemeral loopback port and assert the headers, the origin and Host checks, the 404 paths and the payment confirmation rule.
+
+The dashboard is TypeScript checked in strict mode and must match its committed build:
+
+```
+cd web
+npm install
+npm run check
+npm run build
+git diff --exit-code -- web/dist
+```
+
+The documentation check confirms every backticked path exists, that the quoted test names still exist, and that the docs are ASCII:
+
+```
+bash scripts/check-docs.sh
+```
+
+What a green run does not prove, and the limits of each layer, are in `docs/TESTING.md`. The gate before a real payment is a separate, manual procedure: a sandbox run with `--approve-payment-sats` still needs the amount in the report to match the approval, and a live run needs `--env live --live-ack "I ACKNOWLEDGE LIVE FUNDS"` and explicit human approval for that specific run.
+
 ## The local server and dashboard
 
 ```
