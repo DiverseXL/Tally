@@ -14,6 +14,11 @@ pub const DEFAULT_INVOICE_EXPIRY_SECONDS: u64 = 300;
 /// Configuration of one run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunConfig {
+    /// The run id to use, when the caller must announce it before the run.
+    ///
+    /// `None` lets the runner mint one. The server sets it so the id it returns
+    /// in its 202 answer is the id of the written report.
+    pub run_id: Option<String>,
     /// Sandbox or live.
     pub env_class: EnvClass,
     /// Sats the operator approved for this run, if any.
@@ -37,6 +42,7 @@ pub struct RunConfig {
 impl Default for RunConfig {
     fn default() -> Self {
         Self {
+            run_id: None,
             env_class: EnvClass::Sandbox,
             approve_payment_sats: None,
             live_ack: None,

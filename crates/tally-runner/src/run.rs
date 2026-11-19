@@ -165,7 +165,7 @@ where
 {
     let started = Instant::now();
     let started_at = now_rfc3339();
-    let run_id = new_run_id();
+    let run_id = config.run_id.clone().unwrap_or_else(new_run_id);
 
     let mut ctx = Ctx::new(profile, config, payer, &receiver, observer);
     let mut fixture = None;

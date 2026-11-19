@@ -73,6 +73,8 @@ pub struct FakeConfig {
     pub pay: PayMode,
     /// TEST ONLY: the cipher the wallets start with, before any selection.
     pub encryption_mode: Option<EncryptionMode>,
+    /// TEST ONLY: milliseconds connect and pay wait, so a test can hold a run open.
+    pub delay_ms: u64,
 }
 
 impl Default for FakeConfig {
@@ -88,6 +90,7 @@ impl Default for FakeConfig {
             invoice: InvoiceMode::Normal,
             pay: PayMode::Correct,
             encryption_mode: Some(EncryptionMode::Nip44V2),
+            delay_ms: 0,
         }
     }
 }
@@ -227,8 +230,13 @@ impl WalletApi for FakeWallet {
 
     fn connect(&self) -> impl Future<Output = Result<ConnectReport, NwcError>> + Send {
         let fails = self.config().connect_fails;
+        let delay_ms = self.config().delay_ms;
 
         async move {
+            if delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+
             if fails {
                 return Err(NwcError::new(
                     NwcErrorKind::Transport,
@@ -380,10 +388,15 @@ impl WalletApi for FakeWallet {
     ) -> impl Future<Output = Result<PaidInvoice, NwcError>> + Send {
         let shared = Arc::clone(&self.shared);
         let mode = self.config().pay;
+        let delay_ms = self.config().delay_ms;
         let amount_msat = permit.amount_msat();
         let hash = permit.payment_hash_hex().to_owned();
 
         async move {
+            if delay_ms > 0 {
+                tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+            }
+
             shared.drain_pay_calls.fetch_add(1, Ordering::SeqCst);
 
             match mode {

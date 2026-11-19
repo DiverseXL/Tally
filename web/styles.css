@@ -1,0 +1,24 @@
+:root {
+  color-scheme: light dark;
+  --text: #1d1d1f;
+  --background: #ffffff;
+  --muted: #5b5b60;
+}
+
+body {
+  margin: 0 auto;
+  padding: 1.5rem;
+  max-width: 60rem;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--background);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #f2f2f5;
+    --background: #14141a;
+    --muted: #b4b4bd;
+  }
+}
