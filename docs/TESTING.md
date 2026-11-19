@@ -12,7 +12,7 @@ Every number here comes from `cargo test --workspace -- --list` and `cargo test 
 
 ## Counts
 
-`cargo test --workspace` runs 145 tests:
+`cargo test --workspace` runs 165 tests:
 
 | Binary | Tests |
 | --- | --- |
@@ -21,13 +21,15 @@ Every number here comes from `cargo test --workspace -- --list` and `cargo test 
 | tally-l402 (`crates/tally-l402/tests/fixture.rs`) | 13 |
 | tally-nwc (lib) | 31 |
 | tally-runner (lib) | 10 |
+| tally-runner (`crates/tally-runner/tests/observer.rs`) | 2 |
 | tally-runner (`crates/tally-runner/tests/renderer.rs`) | 9 |
-| tally-runner (`crates/tally-runner/tests/scenarios.rs`) | 12 |
+| tally-runner (`crates/tally-runner/tests/scenarios.rs`) | 14 |
 | tally-cli (`apps/tally-cli/tests/cli.rs`) | 9 |
+| tally-server (`apps/tally-server/tests/api.rs`) | 16 |
 
 Per module inside the libraries: `status::tests` 2, `outcome::tests` 3, `capabilities::tests` 11, `report::tests` 4, `time::tests` 3, `redact::tests` 4, `connection::tests` 4, `guard::tests` 5, `error::tests` 3, `permit::tests` 7, `session::tests` 9, `invoice::tests` 7, `challenge::tests` 13, `macaroon::tests` 12, `client::tests` 2, runner `guard::tests` 6, `profile::tests` 3, `config::tests` 1.
 
-## The twelve runner scenarios
+## The fourteen runner scenarios
 
 `crates/tally-runner/tests/scenarios.rs` drives the real loopback fixture through the real runner, with the wallet pair faked.
 
@@ -45,6 +47,8 @@ scenario_09_wallet_returns_a_wrong_preimage - preimage_verification FAIL with PR
 scenario_10_ambiguous_payment_blocks_the_next_run - AMBIGUOUS guard file written, next run RUN_GUARD_BLOCKED, --clear-guard re-enables paying
 scenario_11_live_without_acknowledgement - live pay BLOCKED with LIVE_NOT_ACKNOWLEDGED, exit 3
 scenario_12_a_paying_state_file_blocks_the_run - stale PAYING file blocks, no payment attempted
+scenario_13_the_report_records_the_negotiated_encryption_mode - nip44_v2 selected, applied and recorded in the report
+scenario_14_nip04_only_wallet_records_nip04 - a payer that only advertises nip04 runs and records nip04
 ```
 
 ## The thirteen L402 scenarios
@@ -102,12 +106,36 @@ a_connection_string_sentinel_never_reaches_any_output - no output contains the s
 dotenv_files_are_read_when_the_environment_is_empty - .env.payer is read when the environment is empty
 ```
 
+## The server tests
+
+`apps/tally-server/tests/api.rs` starts a real Axum router on `127.0.0.1:0` and talks to it over real sockets. Only the two wallets are fake; the fixture, the guard, the permit and the reports are the real code.
+
+```
+# test names
+test_01_status_has_no_secret_and_reports_readiness - ready with two parsing wallets, not ready without them, no secret in the body
+test_02_wrong_host_is_forbidden - a foreign Host header gets 403
+test_03_post_without_the_custom_header_is_forbidden - 403 without X-Tally-Request
+test_04_mismatched_origin_is_forbidden - 403 for a foreign Origin, 202 for the matching one
+test_05_wrong_content_type_is_rejected - a non-JSON body gets a 4xx in the shared error shape
+test_06_oversize_body_is_rejected - an 8 KiB body is refused and nothing is paid
+test_07_wrong_confirmation_starts_nothing - a mismatched PAY line gets 400 and writes no run
+test_08_unpaid_run_streams_ordered_events_and_serves_both_reports - 28 steps then done, exit 5, both reports served
+test_09_paid_run_with_the_exact_confirmation_pays_once - one payment, exit 0
+test_10_a_second_post_while_running_is_a_conflict - 409 while a run is in progress
+test_11_bad_report_ids_never_read_a_file - unknown, non-hex and traversal ids all 404
+test_12_unknown_route_and_method_share_the_error_shape - 404 and 405 in the shared JSON error
+test_13_a_late_subscriber_gets_the_replay - the events route replays a finished run
+test_14_an_ambiguous_guard_file_blocks_until_cleared - blocked, blocked again, then cleared
+test_15_security_headers_on_dashboard_and_report - no-store, nosniff and both CSPs
+test_16_the_bound_address_is_loopback - bind gives 127.0.0.1 and a real port
+```
+
 ## Where the mocks are
 
 Two things are mocked, and only in tests:
 
 - The TEST ONLY invoice generator in `crates/tally-l402/src/test_support.rs`, behind the off-by-default `test-support` feature. It signs real BOLT11 invoices offline and is used by the 13 L402 scenarios and by the 12 runner scenarios through a dev-dependency. Every item's doc comment starts with TEST ONLY.
-- The fake wallet pair in `crates/tally-runner/tests/common/mod.rs`, implementing `WalletApi` with configurable failure modes. It is compiled only into the tally-runner test binary. Only the wallets are faked: the fixture, the run guard, the permit, the preimage check and the renderers are the real code.
+- The fake wallet pair in `crates/tally-runner/src/test_support.rs`, implementing `WalletApi` with configurable failure modes behind the off-by-default `test-support` feature. tally-runner's own tests reach it through a dev-dependency, and tally-server's tests enable the same feature; no runtime binary can. Only the wallets are faked: the fixture, the run guard, the permit, the preimage check and the renderers are the real code.
 
 Nothing else is simulated. The unit tests use no network at all, and the CLI tests launch the real binary.
 

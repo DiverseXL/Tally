@@ -44,6 +44,9 @@ Tally is an open-source developer tool (Dakar Bitcoin Hack 2026 entry) that test
 4. No emojis and no non-ASCII characters in code, comments, logs, console output or docs.
 5. Keep docs/STATUS.md current at the end of every step.
 6. Reports: paste command output verbatim, list NOT VERIFIED items, and end with the exact line the step asks for.
+7. An approved amount is an upper limit. A run may spend less and never more: the `PaymentPermit` binds one invoice, its amount, its payment hash and the environment, and the run guard refuses anything that does not match.
+8. Never write files at the workspace root and never overwrite an existing `.env*` file. Work only inside the paths the step names. Every `cd` is `cd "$dir" || exit 1`, followed by printing the working directory.
+9. Do not call faucet.nwc.dev: it creates wallets without the operator's approval. A new sandbox wallet needs explicit approval for that specific call first.
 
 ## Environment notes (this machine)
 
@@ -61,7 +64,22 @@ Tally is an open-source developer tool (Dakar Bitcoin Hack 2026 entry) that test
 ## TEST ONLY approvals
 
 - TEST ONLY invoice generator, reuse: the offline invoice generator that signs real BOLT11 invoices is moved from `crates/tally-l402/tests/common` into `crates/tally-l402/src/test_support.rs`, behind the off-by-default cargo feature `test-support` of tally-l402, so tally-runner's tests can reuse it through a dev-dependency. Every item keeps a doc comment starting with "TEST ONLY", and no runtime path (CLI, server, examples) can reach it, because only a dev-dependency enables the feature.
-- TEST ONLY fake wallets: a fake wallet pair in `crates/tally-runner/tests/common` implements the `WalletApi` trait with configurable failure modes. Only the wallets are faked: the fixture, guard, permit, preimage verification and reports are the real code. The fake pair is compiled only into the tally-runner test binary.
+- TEST ONLY fake wallets: a fake wallet pair in `crates/tally-runner/src/test_support.rs` implements the `WalletApi` trait with configurable failure modes behind the off-by-default `test-support` feature of tally-runner, which also enables `tally-l402/test-support`. Only the wallets are faked: the fixture, guard, permit, preimage verification and reports are the real code. No runtime binary can reach it, because only a dev-dependency enables the feature.
+
+## Encryption mode
+
+- The cipher is negotiated, not assumed. `WalletSession::select_encryption_mode` picks from the payer info-event `encryption` tokens (nip44_v2 wins over nip04), the runner applies it to the payer session with `set_encryption_mode`, and `get_info` then reports the mode in use.
+- A run records it twice: `environment.encryption_mode_selected` in the report, and the `payer_encryption_mode` and `receiver_encryption_mode` diagnostics on the `info_event` test. A payer that only advertises nip04 gets nip04, and that is what the report says.
+
+## The local server and dashboard
+
+- `tally-server` binds 127.0.0.1 only. `bind()` asks for 127.0.0.1, reads back the bound address and asserts it is loopback; there is no host flag.
+- Sandbox only: the server has no live flag and no live acknowledgement path. A POST that approves a payment must carry `confirm` exactly `PAY <sats> SATS`, and the approval reaches the runner as `approve_payment_sats`.
+- Request controls, all in `apps/tally-server/src/security.rs`: `Host` must be `127.0.0.1:<port>` or `localhost:<port>`; POST needs `X-Tally-Request: 1`; an `Origin` header must match the server; the body is capped at 4 KiB; every response is `no-store` and `nosniff`; the dashboard and its two assets carry the dashboard CSP, a stored `report.html` carries the report CSP.
+- No handler accepts, returns or stores a connection string. Both configured strings go into the `Scrubber` at startup, and every body the server builds is scrubbed before it is sent.
+- `web/` is presentation only. `web/dist/app.js` is committed compiler output of `web/src/app.ts`, checked with `tsc --noEmit` in strict mode; `web/node_modules` is never committed. The server embeds `web/index.html`, `web/styles.css` and `web/dist/app.js` with `include_str!`.
+- The report has no profile field. The server derives it for its history: a report with a `challenge` test is `l402-e2e`, anything else is `basic`.
+- One run at a time: a second POST while one is running answers 409. The process keeps the last 16 run logs in memory; `/api/runs/{id}/events` replays the events recorded so far, then streams the rest, and ends with the `done` event. Report files are served only for 32-digit hex ids under the report directory.
 
 ## Commands that must stay green
 

@@ -4,7 +4,7 @@ Know whether your Lightning wallet integration actually works before your users 
 
 Tally is a developer tool that tests a Bitcoin/Lightning wallet connected through Nostr Wallet Connect (NWC, NIP-47) against the workflows an app depends on. Its flagship proof is a real NWC wallet payment that unlocks an L402-protected resource, where the returned preimage is verified against the invoice payment hash.
 
-Status: working MVP. The runner and the CLI are proven by 145 tests and by recorded live runs; the local server and the web dashboard are not implemented yet.
+Status: working MVP. The runner, the CLI, the local server and the dashboard are proven by 165 tests and by recorded live runs. Live payments are implemented but were never exercised.
 
 ## The problem
 
@@ -84,6 +84,14 @@ cargo run -q -p tally-cli -- report --input reports/latest/report.json --format 
 
 The first `test` spends nothing and exits 5 (a required test was not tested). The second pays 21 sats once, without retry, and exits 0. Reports land in `reports/<run id>/`; `reports/latest/` always holds the newest run.
 
+## The local server and dashboard
+
+```
+cargo run -q -p tally-server -- --port 8787
+```
+
+Open `http://127.0.0.1:8787` in a browser. The server binds 127.0.0.1 only, runs the sandbox profiles with the wallets from `.env.payer` and `.env.receiver`, streams each step to the page and serves the stored reports. A payment needs the approval amount and the matching `PAY <sats> SATS` confirmation in the page. The dashboard source is `web/src/app.ts`; running `npm install` and `npm run build` inside `web` rebuilds the committed `web/dist/app.js`, and `npm run check` type-checks it in strict mode.
+
 ## Quick start (Windows PowerShell 5.1)
 
 PowerShell 5.1 has no `&&`; run one command per line, from the repository root.
@@ -116,7 +124,7 @@ cargo run -q -p tally-cli -- test --profile l402-e2e --approve-payment-sats 21
 - The recorded run is a sandbox run: play money on one Alby Hub, no Lightning channels, no routing over the real network.
 - The L402 server is a local fixture on 127.0.0.1 that Tally starts itself; compatibility with third-party L402 services is not tested.
 - Live mode is implemented (`--env live` plus the acknowledgement) but was never exercised; no real funds were ever spent.
-- The web dashboard and the local server are scaffolds, not features.
+- The local server is sandbox only: no live mode, no authentication, no multi-user support, and it must not be exposed beyond 127.0.0.1.
 - CI is defined in `.github/workflows/ci.yml` but has not been run on GitHub yet.
 - Windows with the gnu toolchain is the only verified platform.
 
