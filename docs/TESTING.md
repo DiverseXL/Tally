@@ -12,7 +12,7 @@ Every number here comes from `cargo test --workspace -- --list` and `cargo test 
 
 ## Counts
 
-`cargo test --workspace` runs 165 tests:
+`cargo test --workspace` runs 166 tests:
 
 | Binary | Tests |
 | --- | --- |
@@ -23,13 +23,13 @@ Every number here comes from `cargo test --workspace -- --list` and `cargo test 
 | tally-runner (lib) | 10 |
 | tally-runner (`crates/tally-runner/tests/observer.rs`) | 2 |
 | tally-runner (`crates/tally-runner/tests/renderer.rs`) | 9 |
-| tally-runner (`crates/tally-runner/tests/scenarios.rs`) | 14 |
+| tally-runner (`crates/tally-runner/tests/scenarios.rs`) | 15 |
 | tally-cli (`apps/tally-cli/tests/cli.rs`) | 9 |
 | tally-server (`apps/tally-server/tests/api.rs`) | 16 |
 
 Per module inside the libraries: `status::tests` 2, `outcome::tests` 3, `capabilities::tests` 11, `report::tests` 4, `time::tests` 3, `redact::tests` 4, `connection::tests` 4, `guard::tests` 5, `error::tests` 3, `permit::tests` 7, `session::tests` 9, `invoice::tests` 7, `challenge::tests` 13, `macaroon::tests` 12, `client::tests` 2, runner `guard::tests` 6, `profile::tests` 3, `config::tests` 1.
 
-## The fourteen runner scenarios
+## The fifteen runner scenarios
 
 `crates/tally-runner/tests/scenarios.rs` drives the real loopback fixture through the real runner, with the wallet pair faked.
 
@@ -49,6 +49,7 @@ scenario_11_live_without_acknowledgement - live pay BLOCKED with LIVE_NOT_ACKNOW
 scenario_12_a_paying_state_file_blocks_the_run - stale PAYING file blocks, no payment attempted
 scenario_13_the_report_records_the_negotiated_encryption_mode - nip44_v2 selected, applied and recorded in the report
 scenario_14_nip04_only_wallet_records_nip04 - a payer that only advertises nip04 runs and records nip04
+scenario_15_payer_and_receiver_keep_their_own_modes - payer nip44_v2 and receiver nip04 are each selected from their own info event
 ```
 
 ## The thirteen L402 scenarios

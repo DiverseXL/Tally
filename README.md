@@ -4,7 +4,7 @@ Know whether your Lightning wallet integration actually works before your users 
 
 Tally is a developer tool that tests a Bitcoin/Lightning wallet connected through Nostr Wallet Connect (NWC, NIP-47) against the workflows an app depends on. Its flagship proof is a real NWC wallet payment that unlocks an L402-protected resource, where the returned preimage is verified against the invoice payment hash.
 
-Status: working MVP. The runner, the CLI, the local server and the dashboard are proven by 165 tests and by recorded live runs. Live payments are implemented but were never exercised.
+Status: working MVP. The runner, the CLI and the local server are proven by 166 tests and by recorded live runs. The dashboard is implemented and type-checked, and its HTTP delivery is covered by server tests, but it has not been verified in a browser yet. Live payments are implemented but were never exercised.
 
 ## The problem
 
@@ -96,7 +96,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-The workspace run covers 165 tests. To work on one layer at a time:
+The workspace run covers 166 tests. To work on one layer at a time:
 
 ```
 cargo test -p tally-core          # status table, outcome mapping, report, redaction
