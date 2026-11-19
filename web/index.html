@@ -1,11 +1,106 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Tally</title>
-  </head>
-  <body>
-    <h1>Tally</h1>
-    <p>This is the dashboard scaffold and nothing works yet.</p>
-  </body>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tally dashboard</title>
+<link rel="stylesheet" href="/assets/styles.css">
+<script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+<header>
+<h1>Tally</h1>
+<p class="subtitle">Check that a Nostr Wallet Connect wallet can do what your app needs. Sandbox wallets only.</p>
+</header>
+
+<main>
+<section aria-labelledby="status-heading">
+<h2 id="status-heading">Server status</h2>
+<div class="status-line">
+<span id="status-pill" class="pill pill-blocked">checking</span>
+<span id="status-detail">Reading the server status.</span>
+<button id="refresh" type="button" class="secondary">Refresh</button>
+</div>
+<p id="status-version" class="muted"></p>
+<dl class="facts">
+<dt>Paying wallet</dt>
+<dd id="wallet-payer"></dd>
+<dt>Receiving wallet</dt>
+<dd id="wallet-receiver"></dd>
+<dt>Directories</dt>
+<dd id="dirs"></dd>
+<dt>Run guard</dt>
+<dd id="guard-count"></dd>
+</dl>
+</section>
+
+<section aria-labelledby="run-heading">
+<h2 id="run-heading">Run a profile</h2>
+<form id="run-form">
+<div class="field">
+<label for="profile">Profile</label>
+<select id="profile" name="profile">
+<option value="basic">basic: wallet methods only</option>
+<option value="l402-e2e">l402-e2e: wallet payment unlocks an L402 resource</option>
+</select>
+</div>
+
+<fieldset id="pay-box" class="pay">
+<legend>Sandbox payment</legend>
+<p class="muted">The invoice is issued by the local fixture to the receiving wallet. A payment happens only when you ask for it below.</p>
+<label class="check">
+<input id="pay" type="checkbox">
+Pay the invoice from the paying wallet
+</label>
+<div class="field">
+<label for="amount">Amount in sats</label>
+<input id="amount" type="number" min="1" step="1" value="21">
+</div>
+<div class="field">
+<label for="confirm">Type the confirmation</label>
+<input id="confirm" type="text" autocomplete="off" spellcheck="false" placeholder="PAY 21 SATS">
+<p class="muted">The server refuses the run unless this matches the amount exactly.</p>
+</div>
+</fieldset>
+
+<label class="check">
+<input id="clear-guard" type="checkbox">
+Clear a stale run guard before starting
+</label>
+
+<p class="actions">
+<button id="start" type="submit">Start run</button>
+</p>
+</form>
+
+<p id="message" class="message" hidden></p>
+<p id="run-line" class="muted"></p>
+<p class="reports">
+<a id="report-html" href="#" hidden>Open the HTML report</a>
+<a id="report-json" href="#" hidden>Download the JSON report</a>
+</p>
+</section>
+
+<section aria-labelledby="steps-heading">
+<h2 id="steps-heading">Steps</h2>
+<p id="steps-empty" class="muted">No run in this session yet.</p>
+<table class="steps">
+<thead>
+<tr><th scope="col">Test</th><th scope="col">Status</th><th scope="col">Reason</th></tr>
+</thead>
+<tbody id="steps"></tbody>
+</table>
+</section>
+
+<section aria-labelledby="history-heading">
+<h2 id="history-heading">Stored runs</h2>
+<p id="history-empty" class="muted">No stored runs yet.</p>
+<ul id="history" class="history"></ul>
+</section>
+</main>
+
+<footer>
+<p class="muted">Tally is a Dakar Bitcoin Hack 2026 project. It binds 127.0.0.1 only and has no live mode.</p>
+</footer>
+</body>
 </html>

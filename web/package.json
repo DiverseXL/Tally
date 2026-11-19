@@ -1,0 +1,11 @@
+{
+  "name": "tally-dashboard",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2"
+  }
+}
