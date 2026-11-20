@@ -12,7 +12,10 @@ use clap::{Args, Parser, Subcommand};
 use secrecy::SecretString;
 use tally_core::report::{SCHEMA_VERSION, exit_code};
 use tally_nwc::{SessionOptions, WalletSession};
-use tally_runner::{Profile, RunConfig, guard, run, summary_lines, to_html, to_json};
+use tally_runner::{
+    DEFAULT_WALLET_REQUIRED, Profile, RunConfig, guard, run, run_wallet, sanitize_label,
+    summary_lines, to_html, to_json,
+};
 
 /// Exit code of a usage or configuration error before any test runs.
 const EXIT_USAGE: u8 = 2;
@@ -34,11 +37,20 @@ enum Command {
     Doctor(ConnectionArgs),
     /// Run the basic profile and print the compact summary.
     Inspect {
-        /// Profile to run; only `basic` is meaningful here.
+        /// Profile to run: `basic` or `wallet`.
         #[arg(long)]
         profile: String,
         #[command(flatten)]
         connection: ConnectionArgs,
+        /// Dotenv file holding one wallet connection string; only with `--profile wallet`.
+        #[arg(long)]
+        wallet_file: Option<PathBuf>,
+        /// Label of a single-wallet run, sanitized to [a-z0-9-] and at most 24 characters.
+        #[arg(long)]
+        label: Option<String>,
+        /// Required methods, comma separated; replaces the default list.
+        #[arg(long)]
+        require: Option<String>,
         /// Where reports are written.
         #[arg(long)]
         out_dir: Option<PathBuf>,
@@ -106,13 +118,26 @@ async fn main() -> ExitCode {
         Command::Inspect {
             profile,
             connection,
+            wallet_file,
+            label,
+            require,
             out_dir,
         } => {
             let Some(profile) = Profile::parse(&profile) else {
                 eprintln!("unknown profile: {}", profile);
                 return ExitCode::from(EXIT_USAGE);
             };
-            run_and_print(profile, connection, out_dir, None).await
+            if profile == Profile::Wallet {
+                inspect_wallet(wallet_file, label, require, out_dir).await
+            } else {
+                if wallet_file.is_some() || label.is_some() || require.is_some() {
+                    eprintln!(
+                        "configuration error: --wallet-file, --label and --require need --profile wallet"
+                    );
+                    return ExitCode::from(EXIT_USAGE);
+                }
+                run_and_print(profile, connection, out_dir, None).await
+            }
         }
         Command::Test {
             profile,
@@ -240,6 +265,128 @@ fn resolve_both(connection: &ConnectionArgs) -> (Option<Resolved>, Option<Resolv
     .unwrap_or(None);
 
     (payer, receiver)
+}
+
+/// One connection string taken from the environment or from a one-line file.
+fn resolve_wallet(wallet_file: Option<&Path>) -> Result<Option<SecretString>, ()> {
+    if let Some(value) = env::var_os("TALLY_WALLET_NWC_URI") {
+        let value = value.to_string_lossy().trim().to_owned();
+        if !value.is_empty() {
+            return Ok(Some(SecretString::from(value)));
+        }
+    }
+
+    let Some(path) = wallet_file else {
+        return Ok(None);
+    };
+
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Err(());
+    };
+
+    let mut found = None;
+    let mut lines = 0;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        lines += 1;
+        if lines > 1 {
+            return Err(());
+        }
+        let Some((name, value)) = line.split_once('=') else {
+            return Err(());
+        };
+        let name = name.trim();
+        if !matches!(
+            name,
+            "TALLY_WALLET_NWC_URI" | "TALLY_PAYER_NWC_URI" | "TALLY_RECEIVER_NWC_URI"
+        ) {
+            return Err(());
+        }
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(());
+        }
+        found = Some(SecretString::from(value.to_owned()));
+    }
+
+    if lines == 1 { Ok(found) } else { Err(()) }
+}
+
+fn parse_required(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+async fn inspect_wallet(
+    wallet_file: Option<PathBuf>,
+    label: Option<String>,
+    require: Option<String>,
+    out_dir: Option<PathBuf>,
+) -> u8 {
+    let wallet = match resolve_wallet(wallet_file.as_deref()) {
+        Ok(Some(wallet)) => wallet,
+        Ok(None) => {
+            eprintln!("configuration error: no wallet connection string is configured");
+            return EXIT_USAGE;
+        }
+        Err(()) => {
+            eprintln!("configuration error: the wallet file must hold one connection string line");
+            return EXIT_USAGE;
+        }
+    };
+
+    let Ok(mut session) = WalletSession::new(&wallet) else {
+        eprintln!("configuration error: the wallet connection string does not parse");
+        return EXIT_USAGE;
+    };
+
+    let wallet_label = match label {
+        Some(label) => match sanitize_label(&label) {
+            Some(label) => Some(label),
+            None => {
+                eprintln!("configuration error: the label has no usable characters");
+                return EXIT_USAGE;
+            }
+        },
+        None => None,
+    };
+
+    let wallet_required = match require {
+        Some(list) => parse_required(&list),
+        None => DEFAULT_WALLET_REQUIRED
+            .iter()
+            .map(|method| String::from(*method))
+            .collect(),
+    };
+
+    let config = RunConfig {
+        out_dir: out_dir.unwrap_or_else(|| PathBuf::from("reports")),
+        wallet_label,
+        wallet_required,
+        ..RunConfig::default()
+    };
+
+    let outcome = match run_wallet(&mut session, &config).await {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            eprintln!("run error: {error}");
+            return EXIT_USAGE;
+        }
+    };
+
+    for line in summary_lines(&outcome) {
+        println!("{line}");
+    }
+
+    let code = exit_code(&outcome.report);
+    u8::try_from(code).unwrap_or(EXIT_USAGE)
 }
 
 fn doctor(connection: &ConnectionArgs) -> u8 {

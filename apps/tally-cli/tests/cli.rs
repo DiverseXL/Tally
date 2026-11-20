@@ -24,6 +24,7 @@ fn run(dir: &Path, args: &[&str], extra_env: &[(&str, &str)]) -> Output {
     command.current_dir(dir).args(args);
     command.env_remove("TALLY_PAYER_NWC_URI");
     command.env_remove("TALLY_RECEIVER_NWC_URI");
+    command.env_remove("TALLY_WALLET_NWC_URI");
     for (key, value) in extra_env {
         command.env(key, value);
     }
@@ -52,6 +53,7 @@ fn sample_json() -> String {
             nwc_client: NwcClientIdentity::new("nwc", "0.45.2"),
             encryption_mode_selected: None,
             network_reported: Some(String::from("signet")),
+            wallet_label: None,
         },
         wallets: Vec::new(),
         capabilities: Vec::new(),
@@ -206,6 +208,101 @@ fn a_connection_string_sentinel_never_reaches_any_output() {
     assert_eq!(test.status.code(), Some(2));
     assert!(!text(&test).contains("sentinel-connection-string-value"));
     assert!(!text(&test).contains(receiver));
+}
+
+#[test]
+fn inspect_wallet_without_a_wallet_exits_two_and_prints_nothing() {
+    let dir = workdir("wallet-empty");
+    let output = run(&dir, &["inspect", "--profile", "wallet"], &[]);
+    let output_text = text(&output);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output_text.contains("no wallet connection string is configured"));
+    assert!(!output_text.contains("nostr+walletconnect"));
+    assert!(!dir.join("reports").exists());
+}
+
+#[test]
+fn inspect_wallet_never_prints_the_connection_string_it_refuses() {
+    let dir = workdir("wallet-sentinel");
+    fs::write(
+        dir.join(".env.wallet"),
+        "TALLY_WALLET_NWC_URI=nostr+walletconnect://wallet-file-sentinel-value\n",
+    )
+    .expect("write wallet file");
+
+    let output = run(
+        &dir,
+        &[
+            "inspect",
+            "--profile",
+            "wallet",
+            "--wallet-file",
+            ".env.wallet",
+            "--label",
+            "Test Wallet",
+            "--require",
+            "get_info,pay_invoice",
+        ],
+        &[],
+    );
+    let output_text = text(&output);
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output_text.contains("does not parse"));
+    assert!(!output_text.contains("wallet-file-sentinel-value"));
+    assert!(!output_text.contains("nostr+walletconnect"));
+    assert!(!dir.join("reports").exists());
+}
+
+#[test]
+fn a_wallet_file_must_hold_exactly_one_wallet_line() {
+    let dir = workdir("wallet-shape");
+    fs::write(
+        dir.join("two-lines.env"),
+        "TALLY_WALLET_NWC_URI=nostr+walletconnect://sentinel-a\nTALLY_WALLET_NWC_URI=nostr+walletconnect://sentinel-b\n",
+    )
+    .expect("write two-line file");
+    fs::write(
+        dir.join("other-key.env"),
+        "SOMETHING_ELSE=nostr+walletconnect://sentinel-c\n",
+    )
+    .expect("write other-key file");
+
+    for file in ["two-lines.env", "other-key.env"] {
+        let output = run(
+            &dir,
+            &["inspect", "--profile", "wallet", "--wallet-file", file],
+            &[],
+        );
+        let output_text = text(&output);
+
+        assert_eq!(output.status.code(), Some(2), "{file}");
+        assert!(
+            output_text.contains("one connection string line"),
+            "{file}: {output_text}"
+        );
+        assert!(!output_text.contains("sentinel-"), "{file}");
+    }
+}
+
+#[test]
+fn single_wallet_flags_are_refused_by_the_two_wallet_profiles() {
+    let dir = workdir("wallet-flags");
+    let output = run(
+        &dir,
+        &[
+            "inspect",
+            "--profile",
+            "basic",
+            "--wallet-file",
+            "missing.env",
+        ],
+        &[],
+    );
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(text(&output).contains("need --profile wallet"));
 }
 
 #[test]

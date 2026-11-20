@@ -71,7 +71,7 @@ impl LoggedEvent {
 impl StepPayload {
     fn from_event(event: &StepEvent, scrubber: &Scrubber) -> Self {
         Self {
-            id: String::from(event.id),
+            id: event.id.clone(),
             phase: match event.phase {
                 StepPhase::Started => "started",
                 StepPhase::Finished => "finished",

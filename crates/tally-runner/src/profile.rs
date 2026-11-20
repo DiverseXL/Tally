@@ -25,6 +25,8 @@ pub enum Profile {
     Basic,
     /// The flagship profile: challenge, payment, preimage check, unlock.
     L402E2e,
+    /// One wallet inspected on its own; no fixture and no payment.
+    Wallet,
 }
 
 impl Profile {
@@ -34,6 +36,7 @@ impl Profile {
         match self {
             Self::Basic => "basic",
             Self::L402E2e => "l402-e2e",
+            Self::Wallet => "wallet",
         }
     }
 
@@ -43,6 +46,7 @@ impl Profile {
         match name {
             "basic" => Some(Self::Basic),
             "l402-e2e" => Some(Self::L402E2e),
+            "wallet" => Some(Self::Wallet),
             _ => None,
         }
     }
@@ -53,6 +57,7 @@ impl Profile {
         match self {
             Self::Basic => BASIC_TESTS,
             Self::L402E2e => L402_TESTS,
+            Self::Wallet => WALLET_TESTS,
         }
     }
 
@@ -111,6 +116,48 @@ const BASIC_TESTS: &[TestSpec] = &[
         name: "Sign a message",
         required: false,
         capability: Some("sign_message"),
+    },
+];
+
+/// The six fixed tests of the wallet profile. The capability checks that follow
+/// them are built from the required-method list of each run and are appended by
+/// the single-wallet runner, never stored here.
+const WALLET_TESTS: &[TestSpec] = &[
+    TestSpec {
+        id: "connect",
+        name: "Connect the wallet",
+        required: true,
+        capability: None,
+    },
+    TestSpec {
+        id: "info_event",
+        name: "Fetch the info event",
+        required: true,
+        capability: None,
+    },
+    TestSpec {
+        id: "get_info",
+        name: "Get wallet info",
+        required: true,
+        capability: Some("get_info"),
+    },
+    TestSpec {
+        id: "get_balance",
+        name: "Get balance",
+        required: true,
+        capability: Some("get_balance"),
+    },
+    TestSpec {
+        id: "make_invoice",
+        name: "Make an invoice",
+        required: true,
+        capability: Some("make_invoice"),
+    },
+    TestSpec {
+        id: "lookup_invoice",
+        name: "Look up the invoice",
+        required: true,
+        capability: Some("lookup_invoice"),
     },
 ];
 
@@ -249,6 +296,23 @@ mod tests {
                 "sign_message",
             ]
         );
+
+        let wallet = Profile::Wallet
+            .tests()
+            .iter()
+            .map(|spec| spec.id)
+            .collect::<Vec<&str>>();
+        assert_eq!(
+            wallet,
+            vec![
+                "connect",
+                "info_event",
+                "get_info",
+                "get_balance",
+                "make_invoice",
+                "lookup_invoice",
+            ]
+        );
     }
 
     #[test]
@@ -264,7 +328,9 @@ mod tests {
     fn names_round_trip() {
         assert_eq!(Profile::parse("basic"), Some(Profile::Basic));
         assert_eq!(Profile::parse("l402-e2e"), Some(Profile::L402E2e));
+        assert_eq!(Profile::parse("wallet"), Some(Profile::Wallet));
         assert_eq!(Profile::parse("other"), None);
         assert_eq!(Profile::Basic.to_string(), "basic");
+        assert_eq!(Profile::Wallet.to_string(), "wallet");
     }
 }

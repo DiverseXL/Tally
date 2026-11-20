@@ -399,6 +399,7 @@ async fn run(approved_sats: Option<u64>) -> ExitCode {
                 .details
                 .as_ref()
                 .and_then(|details| details.network.clone()),
+            wallet_label: None,
         },
         wallets: vec![
             WalletSummary {

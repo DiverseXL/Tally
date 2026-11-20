@@ -57,7 +57,7 @@ pub enum StepPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepEvent {
     /// The test id from the profile.
-    pub id: &'static str,
+    pub id: String,
     /// Started or finished.
     pub phase: StepPhase,
     /// The status once the step finished; none while it runs.
@@ -97,12 +97,15 @@ impl StepObserver for NoopObserver {
 pub enum RunError {
     /// A report directory or file could not be written.
     ReportWrite,
+    /// A single-wallet profile was handed to the two-wallet runner.
+    WrongRunner,
 }
 
 impl std::fmt::Display for RunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::ReportWrite => f.write_str("report could not be written"),
+            Self::WrongRunner => f.write_str("this profile needs the single-wallet runner"),
         }
     }
 }
@@ -163,6 +166,10 @@ where
     R: WalletApi + Send + Sync + 'static,
     O: StepObserver + Send,
 {
+    if profile == Profile::Wallet {
+        return Err(RunError::WrongRunner);
+    }
+
     let started = Instant::now();
     let started_at = now_rfc3339();
     let run_id = config.run_id.clone().unwrap_or_else(new_run_id);
@@ -267,7 +274,7 @@ where
         tracing::info!(event = "step_started", id, "step started");
 
         self.observer.step(&StepEvent {
-            id,
+            id: String::from(id),
             phase: StepPhase::Started,
             status: None,
             reason: None,
@@ -285,7 +292,7 @@ where
         let spec = self.spec(id);
 
         self.observer.step(&StepEvent {
-            id: spec.id,
+            id: String::from(spec.id),
             phase: StepPhase::Finished,
             status: Some(outcome.status()),
             reason: Some(String::from(outcome.reason_code())),
@@ -1510,6 +1517,7 @@ where
                     .payer_encryption_mode
                     .map(|mode| String::from(mode.as_str())),
                 network_reported: self.payer_network,
+                wallet_label: None,
             },
             wallets: vec![
                 WalletSummary {

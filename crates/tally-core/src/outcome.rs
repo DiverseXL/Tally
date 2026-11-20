@@ -252,9 +252,7 @@ pub fn classify_wallet_outcome(observation: Observation) -> Outcome {
         }
         Observation::PreimageMissing => Outcome::new(Status::Fail, reason::NO_PREIMAGE),
         Observation::PreimageMismatch => Outcome::new(Status::Fail, reason::PREIMAGE_MISMATCH),
-        Observation::InfoEventMissing => {
-            Outcome::new(Status::Blocked, reason::INFO_EVENT_NOT_FOUND)
-        }
+        Observation::InfoEventMissing => Outcome::new(Status::Fail, reason::INFO_EVENT_NOT_FOUND),
         Observation::ExpectedBehaviourObserved => {
             Outcome::new(Status::Pass, reason::EXPECTED_BEHAVIOUR_OBSERVED)
         }
@@ -402,7 +400,7 @@ mod tests {
             ),
             (
                 Observation::InfoEventMissing,
-                Status::Blocked,
+                Status::Fail,
                 reason::INFO_EVENT_NOT_FOUND,
             ),
             (

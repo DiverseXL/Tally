@@ -55,23 +55,23 @@ async fn events_arrive_in_profile_order_and_every_test_appears_twice() {
     let expected = Profile::L402E2e
         .tests()
         .iter()
-        .map(|spec| spec.id)
-        .collect::<Vec<&str>>();
+        .map(|spec| String::from(spec.id))
+        .collect::<Vec<String>>();
 
     let started = recorder
         .events
         .iter()
         .filter(|event| event.phase == StepPhase::Started)
-        .map(|event| event.id)
-        .collect::<Vec<&str>>();
+        .map(|event| event.id.clone())
+        .collect::<Vec<String>>();
     assert_eq!(started, expected);
 
     let finished = recorder
         .events
         .iter()
         .filter(|event| event.phase == StepPhase::Finished)
-        .map(|event| event.id)
-        .collect::<Vec<&str>>();
+        .map(|event| event.id.clone())
+        .collect::<Vec<String>>();
     assert_eq!(finished, expected);
 
     assert_eq!(recorder.events.len(), expected.len() * 2);

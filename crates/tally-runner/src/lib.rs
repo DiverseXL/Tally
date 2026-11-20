@@ -10,11 +10,14 @@ pub mod profile;
 pub mod render;
 pub mod run;
 pub mod summary;
+pub mod wallet;
 
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
-pub use config::{DEFAULT_AMOUNT_MSAT, DEFAULT_INVOICE_EXPIRY_SECONDS, RunConfig};
+pub use config::{
+    DEFAULT_AMOUNT_MSAT, DEFAULT_INVOICE_EXPIRY_SECONDS, DEFAULT_WALLET_REQUIRED, RunConfig,
+};
 pub use profile::{Profile, TestSpec};
 pub use render::{STATUSES, WrittenReports, escape, to_html, to_json, write_report_files};
 pub use run::{
@@ -22,3 +25,6 @@ pub use run::{
     StepObserver, StepPhase, TALLY_VERSION, run, run_with_observer,
 };
 pub use summary::{reason_of, summary_lines};
+pub use wallet::{
+    ADVERTISED_ONLY, NO_PAYMENT_LIMITATION, run_wallet, run_wallet_with_observer, sanitize_label,
+};

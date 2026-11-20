@@ -62,6 +62,18 @@ pub enum EndpointClass {
     None,
 }
 
+impl EndpointClass {
+    /// The field value used in reports and console output.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LocalFixture => "local_fixture",
+            Self::ExternalSandbox => "external_sandbox",
+            Self::None => "none",
+        }
+    }
+}
+
 /// The NWC client library in use.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NwcClientIdentity {
@@ -91,6 +103,9 @@ pub enum WalletRole {
     /// The wallet that issues the invoice.
     #[serde(rename = "receiver")]
     Receiver,
+    /// The only wallet of a single-wallet inspection.
+    #[serde(rename = "wallet")]
+    Wallet,
 }
 
 impl WalletRole {
@@ -100,6 +115,7 @@ impl WalletRole {
         match self {
             Self::Payer => "payer",
             Self::Receiver => "receiver",
+            Self::Wallet => "wallet",
         }
     }
 }
@@ -160,6 +176,9 @@ pub struct Environment {
     pub encryption_mode_selected: Option<String>,
     /// The network the wallet reported, when known.
     pub network_reported: Option<String>,
+    /// The operator-supplied label of a single-wallet run, when one was given.
+    #[serde(default)]
+    pub wallet_label: Option<String>,
 }
 
 /// The issued invoice, as evidence only.
@@ -432,6 +451,7 @@ mod tests {
                 },
                 encryption_mode_selected: None,
                 network_reported: None,
+                wallet_label: None,
             },
             wallets: Vec::new(),
             capabilities: Vec::new(),
@@ -529,6 +549,7 @@ mod tests {
                 },
                 encryption_mode_selected: Some(String::from("nip04")),
                 network_reported: Some(String::from("signet")),
+                wallet_label: None,
             },
             wallets: vec![
                 WalletSummary {
@@ -590,7 +611,8 @@ mod tests {
             "\"endpoint_class\":\"external_sandbox\",",
             "\"nwc_client\":{\"name\":\"nwc\",\"version\":\"0.45.2\"},",
             "\"encryption_mode_selected\":\"nip04\",",
-            "\"network_reported\":\"signet\"},",
+            "\"network_reported\":\"signet\",",
+            "\"wallet_label\":null},",
             "\"wallets\":[",
             "{\"role\":\"payer\",\"service_pubkey\":\"aa\"},",
             "{\"role\":\"receiver\",\"service_pubkey\":\"bb\"}],",

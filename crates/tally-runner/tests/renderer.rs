@@ -29,6 +29,7 @@ fn sample_report(statuses: &[(Status, bool)]) -> RunReport {
             nwc_client: NwcClientIdentity::new("nwc", "0.45.2"),
             encryption_mode_selected: None,
             network_reported: Some(String::from("signet")),
+            wallet_label: None,
         },
         wallets: vec![WalletSummary {
             role: WalletRole::Payer,
