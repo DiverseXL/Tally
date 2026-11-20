@@ -8,11 +8,12 @@ Every number here comes from `cargo test --workspace -- --list` and `cargo test 
 | --- | --- | --- | --- |
 | Unit and integration tests | `cargo test --workspace` | no | no |
 | Recorded live sandbox run | `cargo run -q -p tally-cli -- test --profile l402-e2e --approve-payment-sats 21` | yes | yes, and it spends 21 sandbox sats |
+| Real-wallet inspection | `cargo run -q -p tally-cli -- inspect --profile wallet --wallet-file .env.payer` | yes | one wallet, no payment |
 | CI | `.github/workflows/ci.yml` | no | no |
 
 ## Counts
 
-`cargo test --workspace` runs 166 tests:
+`cargo test --workspace` runs 179 tests:
 
 | Binary | Tests |
 | --- | --- |
@@ -20,14 +21,21 @@ Every number here comes from `cargo test --workspace -- --list` and `cargo test 
 | tally-l402 (lib) | 34 |
 | tally-l402 (`crates/tally-l402/tests/fixture.rs`) | 13 |
 | tally-nwc (lib) | 31 |
-| tally-runner (lib) | 10 |
+| tally-runner (lib) | 12 |
 | tally-runner (`crates/tally-runner/tests/observer.rs`) | 2 |
 | tally-runner (`crates/tally-runner/tests/renderer.rs`) | 9 |
 | tally-runner (`crates/tally-runner/tests/scenarios.rs`) | 15 |
-| tally-cli (`apps/tally-cli/tests/cli.rs`) | 9 |
+| tally-runner (`crates/tally-runner/tests/wallet_profile.rs`) | 7 |
+| tally-cli (`apps/tally-cli/tests/cli.rs`) | 13 |
 | tally-server (`apps/tally-server/tests/api.rs`) | 16 |
 
-Per module inside the libraries: `status::tests` 2, `outcome::tests` 3, `capabilities::tests` 11, `report::tests` 4, `time::tests` 3, `redact::tests` 4, `connection::tests` 4, `guard::tests` 5, `error::tests` 3, `permit::tests` 7, `session::tests` 9, `invoice::tests` 7, `challenge::tests` 13, `macaroon::tests` 12, `client::tests` 2, runner `guard::tests` 6, `profile::tests` 3, `config::tests` 1.
+Per module inside the libraries: `status::tests` 2, `outcome::tests` 3, `capabilities::tests` 11, `report::tests` 4, `time::tests` 3, `redact::tests` 4, `connection::tests` 4, `guard::tests` 5, `error::tests` 3, `permit::tests` 7, `session::tests` 9, `invoice::tests` 7, `challenge::tests` 13, `macaroon::tests` 12, `client::tests` 2, runner `guard::tests` 6, `profile::tests` 3, `config::tests` 1, runner `wallet::tests` 2.
+
+## The single-wallet tests
+
+`crates/tally-runner/tests/wallet_profile.rs` runs the wallet profile with fake wallets and no network. It covers the default required list and its exit 0, a required `pay_invoice` reported UNSUPPORTED with exit 4, `sign_message` UNSUPPORTED, an unknown required name refused verbatim, a repeated `--require` replacing the defaults, a missing info event recorded FAIL while the later tests still run against the `get_info` fallback, and the wallet label stored in the report. Every wallet test asserts that the wallet pair saw zero `pay_calls`.
+
+`crates/tally-runner/src/wallet.rs` unit tests cover the label sanitiser and the wallet-profile limitation text, and `apps/tally-cli/tests/cli.rs` covers the `inspect --profile wallet` flags.
 
 ## The fifteen runner scenarios
 

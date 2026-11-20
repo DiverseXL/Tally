@@ -75,6 +75,17 @@ From `examples/recorded-sandbox-run/approved/report.json`, both wallets (payer a
 
 `sign_message` is not among the advertised methods, which is why the recorded run reports it UNSUPPORTED without sending anything.
 
+## Real-wallet compatibility (no payment)
+
+On 2026-11-20 the `wallet` profile inspected two real connections and paid nothing. From `examples/real-wallets/`:
+
+- `coinos`, a third-party provider: network mainnet, `nip44_v2` selected, one relay reached, 9 methods advertised by the info event, `get_info` listing `notifications` that the info event does not, every inspected test PASS, exit 0.
+- `faucet-alby-hub`, the sandbox hub from the recorded proof: network mainnet, `nip44_v2` selected, two relays reached, 14 methods advertised, the two sources agreeing on every method name, every inspected test PASS, exit 0.
+
+Each run issued one 21-sat invoice that was never paid, derived the payment hash from the invoice rather than trusting the wallet, and compared it with the hash the wallet returned. The capability checks record PASS with the diagnostic `advertised only, not exercised`: no `get_info`, `get_balance`, `make_invoice`, `lookup_invoice` or `pay_invoice` request was sent for them.
+
+The matrix is `docs/COMPATIBILITY.md`, regenerated from the report JSON by `scripts/build-compatibility.py`. Permissions, budgets and method lists belong to each NWC connection, so a second connection to the same provider can differ.
+
 ## What is real, sandbox, local or mocked
 
 | Layer | Status | Evidence |

@@ -48,6 +48,7 @@ Relay traffic and wallet calls are live; the payment is live protocol on sandbox
 - The web dashboard (`web/`) is implemented and type-checked, but no browser session has driven it yet; only its build and its HTTP delivery are tested.
 - Live mode (`--env live`) is implemented but never exercised.
 - No third-party L402 service was tested against.
+- The wallet compatibility matrix covers two connections on one date, one of them a third-party provider, and only advertises: no required method was called, so capability PASS means advertised only.
 - CI is defined but was never run on GitHub.
 - No wallet certification, no compatibility guarantee, no security audit.
 
@@ -58,8 +59,8 @@ Relay traffic and wallet calls are live; the payment is live protocol on sandbox
 | Usefulness and Local Impact | Profiles for the NWC methods apps call plus the L402 proof step; one command gives a CI signal before release | `cargo run -q -p tally-cli -- test --profile l402-e2e` | `examples/recorded-sandbox-run/unapproved/report.html` (exit 5, no spend), `examples/recorded-sandbox-run/approved/report.html` (exit 0) |
 | Security by Design | `SecretString` only for connection strings, single-use `PaymentPermit`, no-retry payments, live acknowledgement, run guard, loopback-only fixture, redacting types | `cargo test --workspace` then read `docs/SECURITY.md` | `crates/tally-nwc/src/permit.rs`, `crates/tally-runner/src/guard.rs`, `crates/tally-core/src/redact.rs`, tests named in `docs/SECURITY.md` |
 | UX/UI Quality | Plain CLI summary in run order, HTML report with status counts and a legend, five-status taxonomy so a partial result reads correctly | `cargo run -q -p tally-cli -- report --input reports/latest/report.json --format html --out reports/latest/rerendered.html` | `examples/recorded-sandbox-run/approved/report.html`, `crates/tally-runner/src/render.rs` |
-| Working MVP | 166 tests, one recorded 21-sat payment that unlocked the resource, a loopback-only local server with a dashboard, exit codes 0 to 5 all exercised by tests | `cargo test --workspace` | `examples/recorded-sandbox-run/README.md`, `docs/TESTING.md` |
-| Clear Pitch and Docs | One-sentence proposition, honest limits, six documents, a docs checker, a recorded run | `bash scripts/check-docs.sh` | `README.md`, `docs/`, `examples/recorded-sandbox-run/` |
+| Working MVP | 179 tests, one recorded 21-sat payment that unlocked the resource, two recorded no-payment inspections of real connections, a loopback-only local server with a dashboard, exit codes 0 to 5 all exercised by tests | `cargo test --workspace` | `examples/recorded-sandbox-run/README.md`, `examples/real-wallets/README.md`, `docs/TESTING.md` |
+| Clear Pitch and Docs | One-sentence proposition, honest limits, seven documents, a docs checker, recorded runs | `bash scripts/check-docs.sh` | `README.md`, `docs/`, `examples/recorded-sandbox-run/` |
 
 ## Five-minute path
 

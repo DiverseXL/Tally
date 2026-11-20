@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "run_id": "dd4f4f63ce8c702094571f74235be126",
+  "started_at": "2026-11-20T11:03:35Z",
+  "finished_at": "2026-11-20T11:03:40Z",
+  "duration_ms": 4564,
+  "tally_version": "0.1.0",
+  "environment": {
+    "class": "sandbox",
+    "endpoint_class": "none",
+    "nwc_client": {
+      "name": "nwc",
+      "version": "0.45.2"
+    },
+    "encryption_mode_selected": "nip44_v2",
+    "network_reported": "mainnet",
+    "wallet_label": "faucet-alby-hub"
+  },
+  "wallets": [
+    {
+      "role": "wallet",
+      "service_pubkey": "2b06967837383349ab553abcd569aadb035e61847b766c3f746e046bb415d656"
+    }
+  ],
+  "capabilities": [
+    {
+      "role": "wallet",
+      "info_event": {
+        "found": true,
+        "raw_content": "get_info pay_invoice pay_keysend multi_pay_invoice multi_pay_keysend get_balance make_invoice make_hold_invoice settle_hold_invoice cancel_hold_invoice lookup_invoice list_transactions get_budget notifications",
+        "methods": [
+          "get_info",
+          "pay_invoice",
+          "pay_keysend",
+          "multi_pay_invoice",
+          "multi_pay_keysend",
+          "get_balance",
+          "make_invoice",
+          "make_hold_invoice",
+          "settle_hold_invoice",
+          "cancel_hold_invoice",
+          "lookup_invoice",
+          "list_transactions",
+          "get_budget",
+          "notifications"
+        ],
+        "encryption_tokens": [
+          "nip44_v2",
+          "nip04"
+        ],
+        "extensions": [
+          "02",
+          "03",
+          "04",
+          "05",
+          "06"
+        ]
+      },
+      "get_info": {
+        "methods": [
+          "get_info",
+          "pay_invoice",
+          "pay_keysend",
+          "multi_pay_invoice",
+          "multi_pay_keysend",
+          "get_balance",
+          "make_invoice",
+          "make_hold_invoice",
+          "settle_hold_invoice",
+          "cancel_hold_invoice",
+          "lookup_invoice",
+          "list_transactions",
+          "get_budget"
+        ],
+        "extensions": null,
+        "notifications": [
+          "payment_received",
+          "payment_sent",
+          "hold_invoice_accepted"
+        ],
+        "network": "mainnet",
+        "alias": "NWC"
+      },
+      "effective_source": "info_event",
+      "effective_methods": [
+        "get_info",
+        "pay_invoice",
+        "pay_keysend",
+        "multi_pay_invoice",
+        "multi_pay_keysend",
+        "get_balance",
+        "make_invoice",
+        "make_hold_invoice",
+        "settle_hold_invoice",
+        "cancel_hold_invoice",
+        "lookup_invoice",
+        "list_transactions",
+        "get_budget",
+        "notifications"
+      ],
+      "discrepancies": []
+    }
+  ],
+  "tests": [
+    {
+      "id": "connect",
+      "name": "Connect the wallet",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "the wallet reaches at least one relay",
+      "actual": "the wallet connected",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "relays_connected=2"
+      ]
+    },
+    {
+      "id": "info_event",
+      "name": "Fetch the info event",
+      "status": "PASS",
+      "required": true,
+      "required_capability": null,
+      "expected": "the wallet publishes an info event",
+      "actual": "info event received",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "content_kind=space_separated",
+        "encryption_mode=nip44_v2"
+      ]
+    },
+    {
+      "id": "get_info",
+      "name": "Get wallet info",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "get_info",
+      "expected": "the wallet answers get_info",
+      "actual": "the wallet answered",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "network=mainnet",
+        "methods=13"
+      ]
+    },
+    {
+      "id": "get_balance",
+      "name": "Get balance",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "get_balance",
+      "expected": "the wallet reports a balance",
+      "actual": "the balance was read",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "balance_msat=10000000"
+      ]
+    },
+    {
+      "id": "make_invoice",
+      "name": "Make an invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "make_invoice",
+      "expected": "the wallet issues an invoice without paying it",
+      "actual": "invoice issued",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "amount_msat=21000",
+        "expiry_seconds=300",
+        "payment_hash_from_invoice=true",
+        "wallet_hash_matches=Some(true)"
+      ]
+    },
+    {
+      "id": "lookup_invoice",
+      "name": "Look up the invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "lookup_invoice",
+      "expected": "the new invoice is found as pending",
+      "actual": "wallet reported state pending",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED"
+      ]
+    },
+    {
+      "id": "capability_get_info",
+      "name": "Advertises get_info",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "get_info",
+      "expected": "the wallet advertises get_info",
+      "actual": "advertised only, not exercised",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "advertised only, not exercised",
+        "capability_source=info_event"
+      ]
+    },
+    {
+      "id": "capability_get_balance",
+      "name": "Advertises get_balance",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "get_balance",
+      "expected": "the wallet advertises get_balance",
+      "actual": "advertised only, not exercised",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "advertised only, not exercised",
+        "capability_source=info_event"
+      ]
+    },
+    {
+      "id": "capability_make_invoice",
+      "name": "Advertises make_invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "make_invoice",
+      "expected": "the wallet advertises make_invoice",
+      "actual": "advertised only, not exercised",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "advertised only, not exercised",
+        "capability_source=info_event"
+      ]
+    },
+    {
+      "id": "capability_lookup_invoice",
+      "name": "Advertises lookup_invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "lookup_invoice",
+      "expected": "the wallet advertises lookup_invoice",
+      "actual": "advertised only, not exercised",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "advertised only, not exercised",
+        "capability_source=info_event"
+      ]
+    },
+    {
+      "id": "capability_pay_invoice",
+      "name": "Advertises pay_invoice",
+      "status": "PASS",
+      "required": true,
+      "required_capability": "pay_invoice",
+      "expected": "the wallet advertises pay_invoice",
+      "actual": "advertised only, not exercised",
+      "diagnostics": [
+        "reason=EXPECTED_BEHAVIOUR_OBSERVED",
+        "advertised only, not exercised",
+        "capability_source=info_event"
+      ]
+    }
+  ],
+  "workflow_evidence": {
+    "invoice": {
+      "network": "bitcoin",
+      "amount_msat": 21000,
+      "payment_hash": "d4befd3b5f222a9beece474e216b113365c9e7acf87e079d756a978f4a96ab64",
+      "seconds_until_expiry": 299
+    },
+    "payment": null,
+    "challenge": null,
+    "protected_resource": null
+  },
+  "limitations": [
+    "No payment was made. Capability checks marked advertised-only were not exercised."
+  ]
+}

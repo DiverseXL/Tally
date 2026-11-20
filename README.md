@@ -4,11 +4,13 @@ Know whether your Lightning wallet integration actually works before your users 
 
 Tally is a developer tool that tests a Bitcoin/Lightning wallet connected through Nostr Wallet Connect (NWC, NIP-47) against the workflows an app depends on. Its flagship proof is a real NWC wallet payment that unlocks an L402-protected resource, where the returned preimage is verified against the invoice payment hash.
 
-Status: working MVP. The runner, the CLI and the local server are proven by 166 tests and by recorded live runs. The dashboard is implemented and type-checked, and its HTTP delivery is covered by server tests, but it has not been verified in a browser yet. Live payments are implemented but were never exercised.
+Status: working MVP. The runner, the CLI and the local server are proven by 179 tests and by recorded live runs. The wallet profile has been run without payment against two real connections, one of them a third-party provider. The dashboard is implemented and type-checked, and its HTTP delivery is covered by server tests, but it has not been verified in a browser yet. Live payments are implemented but were never exercised.
 
 ## The problem
 
 A wallet that connects over NWC has not thereby proven that it supports the methods an app calls, that it can issue and settle payments the way the app expects, or that an L402 payment-proof step works end to end. Those failures show up in production, in front of a paying user.
+
+A name on a supported-wallet list is not a test result: those lists are curated by hand, and one integration's list (https://pypi.org/project/lightning-enable-mcp/1.6.1/, read 2026-11-19) shows how many wallets are named without a published end-to-end check.
 
 ## Who it is for
 
@@ -22,10 +24,11 @@ Tally is not a wallet, not a security audit, not a wallet certification, and not
 
 ## What it does
 
-Two profiles run from one binary, `tally`:
+Three profiles run from one binary, `tally`:
 
 - `basic` runs seven wallet-only tests: `connect`, `info_event`, `get_info`, `get_balance`, `make_invoice`, `lookup_invoice`, `sign_message`.
 - `l402-e2e` runs fourteen tests that end in an unlocked resource.
+- `wallet` inspects one wallet without paying: `connect`, `info_event`, `get_info`, `get_balance`, `make_invoice`, `lookup_invoice`, plus one capability check for every method named with `--require`.
 
 The `l402-e2e` flow, with the statuses recorded in `examples/recorded-sandbox-run/approved/report.json`:
 
@@ -57,6 +60,15 @@ Two real runs are committed, unedited, under `examples/recorded-sandbox-run/`:
 
 Both carry the limitation text stored in the report: the wallets are sandbox wallets on a single Alby Hub with play money and no Lightning channels, and the protected resource is Tally's own loopback fixture. NWC traffic, wallet calls and the payment are real; the money is not. Provenance is in `examples/recorded-sandbox-run/README.md`.
 
+## Tested against
+
+On 2026-11-20 the `wallet` profile was run, without payment, against two real connections:
+
+- `coinos`: a third-party custodial wallet. All six inspected tests PASS, 9 methods advertised by the info event, one capability discrepancy (`notifications` is listed by `get_info` but not by the info event), exit code 0.
+- `faucet-alby-hub`: the sandbox Alby Hub from the recorded proof. All six inspected tests PASS, 14 methods advertised, the two capability sources agree on every method name, exit code 0.
+
+Both reports, unedited, are in `examples/real-wallets/`, with provenance in `examples/real-wallets/README.md`; the matrix built from them is `docs/COMPATIBILITY.md`. Two connections on one date are a sample, not a survey, and no payment was made, so nothing there says whether a payment succeeds.
+
 ## Quick start (Git Bash)
 
 Prerequisites: Rust stable (tested on `stable-x86_64-pc-windows-gnu` with MinGW-w64; the MSVC toolchain was not verified), `git`, and `curl`.
@@ -77,12 +89,14 @@ printf 'TALLY_RECEIVER_NWC_URI=%s\n' "$(curl -s -X POST 'https://faucet.nwc.dev?
 ```
 cargo run -q -p tally-cli -- doctor
 cargo run -q -p tally-cli -- inspect --profile basic
+cargo run -q -p tally-cli -- inspect --profile wallet --wallet-file .env.payer --label my-wallet
+cargo run -q -p tally-cli -- inspect --profile wallet --wallet-file .env.payer --require pay_invoice --require lookup_invoice
 cargo run -q -p tally-cli -- test --profile l402-e2e
 cargo run -q -p tally-cli -- test --profile l402-e2e --approve-payment-sats 21
 cargo run -q -p tally-cli -- report --input reports/latest/report.json --format html --out reports/latest/rerendered.html
 ```
 
-The first `test` spends nothing and exits 5 (a required test was not tested). The second pays 21 sats once, without retry, and exits 0. Reports land in `reports/<run id>/`; `reports/latest/` always holds the newest run.
+The `wallet` inspections spend nothing and issue one unpaid invoice each: the first reports every test, the second exits 4 when the wallet does not advertise a required method. The first `test` spends nothing and exits 5 (a required test was not tested). The second pays 21 sats once, without retry, and exits 0. Reports land in `reports/<run id>/`; `reports/latest/` always holds the newest run.
 
 ## How to test
 
@@ -96,7 +110,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-The workspace run covers 166 tests. To work on one layer at a time:
+The workspace run covers 179 tests. To work on one layer at a time:
 
 ```
 cargo test -p tally-core          # status table, outcome mapping, report, redaction
@@ -155,6 +169,8 @@ $receiver = Invoke-RestMethod -Method Post -Uri 'https://faucet.nwc.dev?balance=
 
 cargo run -q -p tally-cli -- doctor
 cargo run -q -p tally-cli -- inspect --profile basic
+cargo run -q -p tally-cli -- inspect --profile wallet --wallet-file .env.payer --label my-wallet
+cargo run -q -p tally-cli -- inspect --profile wallet --wallet-file .env.payer --require pay_invoice --require lookup_invoice
 cargo run -q -p tally-cli -- test --profile l402-e2e
 cargo run -q -p tally-cli -- test --profile l402-e2e --approve-payment-sats 21
 ```
@@ -171,6 +187,7 @@ cargo run -q -p tally-cli -- test --profile l402-e2e --approve-payment-sats 21
 ## Known limits
 
 - The recorded run is a sandbox run: play money on one Alby Hub, no Lightning channels, no routing over the real network.
+- The wallet matrix covers two connections on one date: one third-party provider and the sandbox hub. A provider's other connection can advertise different methods, and no advertised method was called, so capability PASS means advertised only.
 - The L402 server is a local fixture on 127.0.0.1 that Tally starts itself; compatibility with third-party L402 services is not tested.
 - Live mode is implemented (`--env live` plus the acknowledgement) but was never exercised; no real funds were ever spent.
 - The local server is sandbox only: no live mode, no authentication, no multi-user support, and it must not be exposed beyond 127.0.0.1.

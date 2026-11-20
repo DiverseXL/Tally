@@ -54,7 +54,7 @@ The guard check is not a test. Each of the other steps records one `TestResult` 
 ## NWC lifecycle
 
 - Connect: `WalletSession::connect` opens the relay connections from the connection string. The connect wait is `DEFAULT_CONNECT_WAIT` (15 seconds) and each request has `DEFAULT_REQUEST_TIMEOUT` (30 seconds).
-- Cipher: the info event's `encryption` tag decides. `nip44_v2` is selected when the tag lists it, otherwise `nip04`, including when there is no tag. The choice is passed to the `nwc` builder explicitly (`force_nip44_v2` or `force_nip04`). The recorded run shows both tokens advertised (`nip44_v2`, `nip04`); the report field `encryption_mode_selected` is null there because the runner does not fill it in (see `docs/STATUS.md` and `docs/INTEGRATIONS.md`).
+- Cipher: the info event's `encryption` tag decides. `nip44_v2` is selected when the tag lists it, otherwise `nip04`, including when there is no tag. The choice is passed to the `nwc` builder explicitly (`force_nip44_v2` or `force_nip04`). The recorded run shows both tokens advertised (`nip44_v2`, `nip04`); the report field `encryption_mode_selected` is null in that Step 7 report because it predates the fill; current runs record the payer session's cipher there, and the Step 10 real-wallet inspections record `nip44_v2`.
 - Requests: one request, one response, no retry. A request that carries no wallet error code is BLOCKED, not FAIL.
 - Errors: NIP-47 codes are read from the error message by `crates/tally-nwc/src/error.rs` and mapped through the shared table.
 
