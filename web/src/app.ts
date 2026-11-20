@@ -77,6 +77,7 @@ const ui = {
   amount: byId<HTMLInputElement>("amount"),
   confirm: byId<HTMLInputElement>("confirm"),
   clearGuard: byId<HTMLInputElement>("clear-guard"),
+  clearGuardBox: byId<HTMLElement>("clear-guard-box"),
   submit: byId<HTMLButtonElement>("start"),
   message: byId<HTMLParagraphElement>("message"),
   runLine: byId<HTMLParagraphElement>("run-line"),
@@ -140,6 +141,13 @@ function setReady(status: StatusPayload): void {
       ? "1 guard file would block a payment"
       : String(status.doctor.blocking_guard_files) +
         " guard files would block a payment";
+  // The clear-guard option only makes sense when a guard file is present, so
+  // the whole label stays hidden otherwise (and a stale tick is dropped).
+  const blocking = status.doctor.blocking_guard_files > 0;
+  ui.clearGuardBox.hidden = !blocking;
+  if (!blocking) {
+    ui.clearGuard.checked = false;
+  }
 }
 
 async function errorText(response: Response): Promise<string> {
