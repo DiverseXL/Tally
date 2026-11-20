@@ -53,6 +53,7 @@ Tally is a developer tool, not a wallet and not an audit. This page states what 
 - Live mode is implemented but was never exercised. Its behaviour against a real wallet is unverified.
 - Only the Windows gnu toolchain was built and tested. MSVC and non-Windows platforms are unverified.
 - No formal audit, penetration test or threat model review has been done.
+- Early commits contain throwaway test connection strings made of generated keys, not from any real wallet; they were replaced by keys generated at test time in commit a61ace4.
 - The four cargo dependencies that handle cryptography or money (`nwc`, `nostr`, `lightning-invoice`, `libmacaroon`) are trusted as published; Tally does not pin checksums beyond `Cargo.lock`.
 
 ## Known advisories

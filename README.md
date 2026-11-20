@@ -74,7 +74,7 @@ Both reports, unedited, are in `examples/real-wallets/`, with provenance in `exa
 Prerequisites: Rust stable (tested on `stable-x86_64-pc-windows-gnu` with MinGW-w64; the MSVC toolchain was not verified), `git`, and `curl`.
 
 ```
-git clone <repository-url> Tally
+git clone https://github.com/DiverseXL/Tally.git Tally
 cd Tally
 cargo test --workspace
 ```
