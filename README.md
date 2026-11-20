@@ -65,7 +65,7 @@ Both carry the limitation text stored in the report: the wallets are sandbox wal
 On 2026-11-20 the `wallet` profile was run, without payment, against two real connections:
 
 - `coinos`: a third-party custodial wallet. All six inspected tests PASS, 9 methods advertised by the info event, one capability discrepancy (`notifications` is listed by `get_info` but not by the info event), exit code 0.
-- `faucet-alby-hub`: the sandbox Alby Hub from the recorded proof. All six inspected tests PASS, 14 methods advertised, the two capability sources agree on every method name, exit code 0.
+- `faucet-alby-hub`: the sandbox Alby Hub from the recorded proof. All six inspected tests PASS, 13 methods advertised, and the two capability sources agree on every method name (the info event adds the `notifications` flag), exit code 0.
 
 Both reports, unedited, are in `examples/real-wallets/`, with provenance in `examples/real-wallets/README.md`; the matrix built from them is `docs/COMPATIBILITY.md`. Two connections on one date are a sample, not a survey, and no payment was made, so nothing there says whether a payment succeeds.
 
